@@ -1,0 +1,46 @@
+{% extends 'ledger/base.html' %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>支払い元の管理</h1>
+    <p>クレジットカード、銀行、コード決済、ポイントなどを登録します。利用停止しても過去明細は残ります。</p>
+  </div>
+  <div class="actions">
+    <a class="button secondary" href="{% url 'payment_link_settings' %}">コード決済の引き落とし元を設定</a>
+    <a class="button secondary" href="{% url 'people_settings' %}">医療費の対象者管理</a>
+  </div>
+</div>
+<section class="panel">
+  <h2>{% if editing %}{{ editing.name }}を編集{% else %}支払い元を追加{% endif %}</h2>
+  <form method="post" class="entry-form" data-payment-source-form>
+    {% csrf_token %}
+    {% for field in form %}
+      {% if field.name == 'is_active' %}
+        <div>
+          <label class="checkbox-field">{{ field }}<span>{{ field.label }}</span></label>
+          {% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}
+          {{ field.errors }}
+        </div>
+      {% elif field.name == 'linked_source' %}
+        <label data-linked-source-field>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
+      {% else %}
+        <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
+      {% endif %}
+    {% endfor %}
+    <button>保存</button>
+    {% if editing %}<a class="button secondary" href="{% url 'source_settings' %}">キャンセル</a>{% endif %}
+  </form>
+</section>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>種類</th><th>名称</th><th>引き落とし元</th><th>状態</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for source in sources %}
+        <tr><td>{{ source.get_kind_display }}</td><td>{{ source.name }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% else %}—{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td><td><a href="{% url 'source_edit' source.id %}">編集</a></td></tr>
+      {% empty %}
+        <tr><td colspan="5" class="empty">支払い元がありません。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

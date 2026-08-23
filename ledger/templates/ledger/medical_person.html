@@ -1,0 +1,51 @@
+{% extends 'ledger/base.html' %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p><a href="{% url 'medical' %}?year={{ year }}">← 医療費一覧</a></p>
+    <h1>{{ person.name }}の医療費（{{ year }}年）</h1>
+    <p class="total">¥{{ total|floatformat:0 }}</p>
+  </div>
+  <form class="inline" method="get"><input type="number" min="2000" max="2100" name="year" value="{{ year }}"><button>表示</button></form>
+</div>
+
+<section class="panel">
+  <h2>病院を選択</h2>
+  <p>病院を選んでから、その病院に対する受診日・病院費用・薬局・交通費を入力します。</p>
+  <div class="source-grid hospital-selection-grid">
+    {% for hospital in hospitals %}
+    <a class="panel source-card" href="{% url 'medical_hospital_detail' person.id %}?year={{ year }}&amp;name={{ hospital.hospital_name|urlencode }}">
+      <strong>{{ hospital.hospital_name }}</strong><b>¥{{ hospital.total|floatformat:0 }}</b><small>受診記録 {{ hospital.visit_count }}件</small>
+    </a>
+    {% empty %}
+    <p class="empty hospital-selection-empty">この年に入力済みの病院はありません。下から病院を追加してください。</p>
+    {% endfor %}
+  </div>
+  {% if standalone_count %}<p class="message">病院名が不明な旧単独記録が{{ standalone_count }}件あります。受診記録一覧で確認できます。</p>{% endif %}
+</section>
+
+{% if person.is_active %}
+<section class="panel">
+  <h2>病院を新規追加</h2>
+  <p>病院名を入力すると、その病院専用の入力ページへ移動します。この操作だけでは受診記録は作成されません。</p>
+  <form class="hospital-add-form" method="post" action="{% url 'medical_hospital_add' person.id %}?year={{ year }}">
+    {% csrf_token %}<label>{{ hospital_add_form.hospital_name.label }}{{ hospital_add_form.hospital_name }}</label><button type="submit">病院を選択して入力へ</button>
+  </form>
+</section>
+{% else %}
+<p class="message">この対象者は利用停止中のため、過去の記録を閲覧できますが新規入力はできません。</p>
+{% endif %}
+
+<h2 class="medical-history-heading">受診記録一覧</h2>
+<div class="table-toolbar">
+  <a class="button secondary" href="{% url 'medical_person_export' person.id %}?year={{ year }}">CSVダウンロード</a>
+  <button type="button" data-range-mode>範囲選択</button><button type="button" data-print-range disabled>選択範囲を印刷</button><button type="button" data-clear-range>選択解除</button>
+</div>
+<div class="print-title" data-print-title>{{ person.name }}の医療費 {{ year }}年</div>
+<div class="table-wrap">
+  <table data-selectable-table data-print-orientation="portrait" tabindex="0">
+    <thead><tr><th>日付</th><th>病院名/薬局名/交通手段</th><th>金額</th><th class="no-select">操作</th></tr></thead>
+    <tbody>{% for visit in visits %}<tr><td>{{ visit.visited_on|date:"Y/m/d" }}</td><td><ul class="medical-visit-summary">{% for entry in visit.entries.all %}<li><span class="category-badge category-{{ entry.category }}">{{ entry.get_category_display }}</span>{% if entry.category == 'hospital' and visit.hospital_name %}<a href="{% url 'medical_hospital_detail' person.id %}?year={{ year }}&amp;name={{ visit.hospital_name|urlencode }}">{{ entry.provider_name }}</a>{% else %}{{ entry.provider_name }}{% endif %}</li>{% empty %}<li>{{ visit.display_name }}</li>{% endfor %}</ul></td><td class="amount">¥{{ visit.visit_total|floatformat:0 }}</td><td class="no-select"><a href="{% url 'medical_visit_edit' visit.id %}">編集</a><form method="post" action="{% url 'medical_visit_delete' visit.id %}" data-confirm="この受診記録と付随する明細を削除しますか？">{% csrf_token %}<button class="link-button danger">削除</button></form></td></tr>{% empty %}<tr><td colspan="4" class="empty">まだ受診記録がありません。</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endblock %}

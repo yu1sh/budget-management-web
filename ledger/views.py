@@ -1,0 +1,562 @@
+from datetime import date
+from pathlib import Path
+from urllib.parse import urlencode
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
+from django.db import transaction
+from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models.functions import Coalesce
+from django.http import FileResponse, HttpResponseForbidden
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods, require_POST
+from .forms import (
+    HouseholdEntryForm,
+    HouseholdBatchForm,
+    HouseholdBreakdownFormSet,
+    HospitalNameForm,
+    JapanesePasswordChangeForm,
+    MedicalBatchForm,
+    MedicalHospitalVisitForm,
+    MedicalEntryForm,
+    PaymentLinkForm,
+    PaymentSourceForm,
+    PersonForm,
+)
+from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person
+from .services import (export_household_month, export_medical_all, export_medical_person,
+                       household_csv_path, medical_csv_path, recalculate_medical)
+
+
+def _month(request):
+    raw = request.GET.get("month", "")
+    try:
+        y, m = map(int, raw.split("-")) if raw else (timezone.localdate().year, timezone.localdate().month)
+        if not 2000 <= y <= 2100 or not 1 <= m <= 12:
+            raise ValueError
+        return y, m
+    except (ValueError, TypeError):
+        return timezone.localdate().year, timezone.localdate().month
+
+
+def _year(request):
+    try:
+        year = int(request.GET.get("year", timezone.localdate().year))
+        return year if 2000 <= year <= 2100 else timezone.localdate().year
+    except ValueError:
+        return timezone.localdate().year
+
+
+def _previous_next(year, month):
+    prev = date(year - 1, 12, 1) if month == 1 else date(year, month - 1, 1)
+    nxt = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return prev, nxt
+
+
+def login_view(request):
+    if request.user.is_authenticated:
+        return redirect("chooser")
+    if request.method == "POST":
+        username = request.POST.get("username", "").strip()
+        key = f"login-lock:{request.META.get('REMOTE_ADDR', '')}:{username.lower()}"
+        if cache.get(key) == "locked":
+            messages.error(request, "ログイン試行が多すぎます。15分後にもう一度お試しください。")
+        else:
+            user = authenticate(request, username=username, password=request.POST.get("password", ""))
+            if user:
+                cache.delete(key)
+                login(request, user)
+                return redirect("chooser")
+            failures = cache.get(key, 0) + 1
+            cache.set(key, "locked" if failures >= 5 else failures, 900)
+            messages.error(request, "ユーザー名またはパスワードが違います。")
+    return render(request, "ledger/login.html")
+
+
+@require_POST
+def logout_view(request):
+    logout(request)
+    return redirect("login")
+
+
+@login_required
+def chooser(request):
+    return render(request, "ledger/chooser.html")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def household(request):
+    year, month = _month(request)
+    if request.method == "POST":
+        data = request.POST.copy()
+        # Preserve the old one-row POST shape for integrations while the UI uses
+        # a formset. It also makes upgrading an existing installation harmless.
+        if "lines-TOTAL_FORMS" not in data:
+            data.update({
+                "lines-TOTAL_FORMS": "1", "lines-INITIAL_FORMS": "0",
+                "lines-MIN_NUM_FORMS": "0", "lines-MAX_NUM_FORMS": "50",
+                "lines-0-description": data.get("description", ""),
+                "lines-0-amount_yen": data.get("amount_yen", ""),
+            })
+        form = HouseholdBatchForm(data)
+        line_formset = HouseholdBreakdownFormSet(data, prefix="lines")
+        if form.is_valid() and line_formset.is_valid():
+            source = form.cleaned_data["payment_source"]
+            linked_source = source.linked_source if source.kind == PaymentSource.Kind.CODE else None
+            with transaction.atomic():
+                for line in line_formset.active_rows:
+                    HouseholdEntry.objects.create(
+                        spent_on=form.cleaned_data["spent_on"],
+                        shop_name=form.cleaned_data["shop_name"],
+                        description=line["description"],
+                        amount_yen=line["amount_yen"],
+                        payment_source=source,
+                        payment_source_name_snapshot=source.name,
+                        payment_source_kind_snapshot=source.kind,
+                        linked_source=linked_source,
+                        linked_source_name_snapshot=linked_source.name if linked_source else "",
+                        note=form.cleaned_data["note"],
+                    )
+            export_household_month(form.cleaned_data["spent_on"].year, form.cleaned_data["spent_on"].month)
+            messages.success(request, f"家計簿の明細を{len(line_formset.active_rows)}行保存しました。")
+            return redirect(f"{request.path}?month={form.cleaned_data['spent_on']:%Y-%m}")
+    else:
+        form = HouseholdBatchForm()
+        line_formset = HouseholdBreakdownFormSet(prefix="lines")
+    entries = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True).select_related("payment_source")
+    total = entries.aggregate(total=Sum("amount_yen"))["total"] or 0
+    shop_names = (
+        HouseholdEntry.objects.filter(deleted_at__isnull=True)
+        .order_by("shop_name")
+        .values_list("shop_name", flat=True)
+        .distinct()[:100]
+    )
+    prev, nxt = _previous_next(year, month)
+    return render(request, "ledger/household.html", {
+        "form": form, "line_formset": line_formset, "entries": entries, "total": total,
+        "year": year, "month": month, "prev": prev, "next": nxt, "shop_names": shop_names,
+        "has_payment_sources": PaymentSource.objects.filter(is_active=True).exists(),
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def household_edit(request, pk):
+    entry = get_object_or_404(HouseholdEntry, pk=pk, deleted_at__isnull=True)
+    original_month = (entry.spent_on.year, entry.spent_on.month)
+    if request.method == "POST":
+        form = HouseholdEntryForm(request.POST, instance=entry)
+        if form.is_valid():
+            entry = form.save()
+            export_household_month(*original_month)
+            export_household_month(entry.spent_on.year, entry.spent_on.month)
+            messages.success(request, "明細を更新しました。")
+            return redirect(f"/household/?month={entry.spent_on:%Y-%m}")
+    else:
+        form = HouseholdEntryForm(instance=entry)
+    return render(request, "ledger/edit.html", {"form": form, "title": "家計簿の明細を編集", "cancel": f"/household/?month={entry.spent_on:%Y-%m}"})
+
+
+@login_required
+@require_POST
+def household_delete(request, pk):
+    entry = get_object_or_404(HouseholdEntry, pk=pk, deleted_at__isnull=True)
+    entry.deleted_at = timezone.now()
+    entry.save(update_fields=["deleted_at"])
+    export_household_month(entry.spent_on.year, entry.spent_on.month)
+    messages.success(request, "明細を削除しました。")
+    return redirect(f"/household/?month={entry.spent_on:%Y-%m}")
+
+
+@login_required
+def sources(request):
+    year, month = _month(request)
+    sources_qs = list(PaymentSource.objects.all())
+    base = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True)
+    for source in sources_qs:
+        source.direct_total = base.filter(payment_source=source).aggregate(total=Sum("amount_yen"))["total"] or 0
+        source.funded_total = base.filter(linked_source=source).exclude(payment_source=source).aggregate(total=Sum("amount_yen"))["total"] or 0
+        source.month_total = source.direct_total + source.funded_total if source.kind in (PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK) else source.direct_total
+    return render(request, "ledger/sources.html", {"sources": sources_qs, "year": year, "month": month})
+
+
+@login_required
+def source_detail(request, pk):
+    source = get_object_or_404(PaymentSource, pk=pk)
+    year, month = _month(request)
+    base = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True)
+    direct = base.filter(payment_source=source).select_related("payment_source", "linked_source")
+    funded = base.filter(linked_source=source).exclude(payment_source=source).select_related("payment_source", "linked_source")
+    direct_total = direct.aggregate(total=Sum("amount_yen"))["total"] or 0
+    funded_total = funded.aggregate(total=Sum("amount_yen"))["total"] or 0
+    breakdown = direct.values("description").annotate(total=Sum("amount_yen")).order_by("-total", "description")
+    return render(request, "ledger/source_detail.html", {"source": source, "year": year, "month": month, "direct": direct, "funded": funded, "direct_total": direct_total, "funded_total": funded_total, "breakdown": breakdown})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def source_settings(request, pk=None):
+    instance = get_object_or_404(PaymentSource, pk=pk) if pk else None
+    if request.method == "POST":
+        form = PaymentSourceForm(request.POST, instance=instance)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "支払い元を保存しました。")
+            return redirect("source_settings")
+    else:
+        form = PaymentSourceForm(instance=instance)
+    return render(request, "ledger/settings_sources.html", {"form": form, "sources": PaymentSource.objects.all(), "editing": instance})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def payment_link_settings(request):
+    if request.method == "POST":
+        form = PaymentLinkForm(request.POST)
+        if form.is_valid():
+            code_payment = form.cleaned_data["code_payment"]
+            code_payment.linked_source = form.cleaned_data["linked_source"]
+            code_payment.save(update_fields=["linked_source", "updated_at"])
+            messages.success(
+                request,
+                f"{code_payment.name}の引き落とし元を{code_payment.linked_source.name}に設定しました。",
+            )
+            return redirect("payment_link_settings")
+    else:
+        form = PaymentLinkForm()
+    code_payments = PaymentSource.objects.filter(
+        kind=PaymentSource.Kind.CODE
+    ).select_related("linked_source").order_by("name")
+    available_sources = PaymentSource.objects.filter(
+        is_active=True,
+        kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK),
+    ).exists()
+    return render(
+        request,
+        "ledger/settings_payment_links.html",
+        {
+            "form": form,
+            "code_payments": code_payments,
+            "available_sources": available_sources,
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def medical(request):
+    year = _year(request)
+    people = Person.objects.all()
+    people = people.annotate(year_total=Sum("medical_entries__paid_amount_yen", filter=Q(medical_entries__record_year=year, medical_entries__deleted_at__isnull=True)))
+    total = sum(p.year_total or 0 for p in people)
+    return render(request, "ledger/medical.html", {"people": people, "year": year, "total": total})
+
+
+@login_required
+def medical_hospitals(request):
+    """Compatibility endpoint for bookmarks from the former hospital tab."""
+    return redirect(f"/medical/?year={_year(request)}")
+
+
+@login_required
+def medical_person_hospitals(request, person_id):
+    """Compatibility endpoint; hospital selection now lives on the person page."""
+    person = get_object_or_404(Person, pk=person_id)
+    year = _year(request)
+    return redirect(f"/medical/{person.id}/?year={year}")
+
+
+def _medical_post_data(request, year):
+    """Keep the previous POST contract working while requiring a visible date field."""
+    data = request.POST.copy()
+    if not data.get("visited_on"):
+        data["visited_on"] = date(year, 1, 1).isoformat()
+    return data
+
+
+def _save_medical_visit(person, year, form, visit=None, hospital_name=None):
+    """Create or update a visit and its three optional, visit-owned detail rows."""
+    with transaction.atomic():
+        selected_hospital_name = hospital_name if hospital_name is not None else form.cleaned_data["hospital_name"]
+        if visit is None:
+            visit = MedicalVisit.objects.create(
+                person=person,
+                record_year=year,
+                visited_on=form.cleaned_data["visited_on"],
+                hospital_name=selected_hospital_name,
+            )
+        else:
+            visit.visited_on = form.cleaned_data["visited_on"]
+            visit.hospital_name = selected_hospital_name
+            visit.save(update_fields=["visited_on", "hospital_name", "updated_at"])
+
+        existing = {}
+        for entry in visit.entries.select_for_update().filter(deleted_at__isnull=True).order_by("created_at", "id"):
+            existing.setdefault(entry.category, []).append(entry)
+        submitted = {category: (name, amount) for category, name, amount in form.entries}
+        for category, (name, amount) in submitted.items():
+            rows = existing.pop(category, [])
+            if rows:
+                entry = rows.pop(0)
+                entry.person = person
+                entry.record_year = year
+                entry.provider_name = name
+                entry.paid_amount_yen = amount
+                entry.save(update_fields=["person", "record_year", "provider_name", "paid_amount_yen", "updated_at"])
+                if rows:
+                    MedicalEntry.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=timezone.now())
+            else:
+                MedicalEntry.objects.create(
+                    person=person, visit=visit, record_year=year, category=category,
+                    provider_name=name, paid_amount_yen=amount,
+                )
+        for rows in existing.values():
+            MedicalEntry.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=timezone.now())
+
+        recalculate_medical(person.id, year)
+        export_medical_person(year, person.id)
+        export_medical_all(year)
+    return visit
+
+
+def _person_hospital_rollup(person, year):
+    return (
+        MedicalVisit.objects.filter(
+            person=person, record_year=year, deleted_at__isnull=True,
+            hospital_name__gt="", entries__deleted_at__isnull=True,
+        )
+        .values("hospital_name")
+        .annotate(total=Sum("entries__paid_amount_yen"), visit_count=Count("id", distinct=True))
+        .order_by("hospital_name")
+    )
+
+
+@login_required
+@require_POST
+def medical_hospital_add(request, person_id):
+    person = get_object_or_404(Person, pk=person_id)
+    year = _year(request)
+    if not person.is_active:
+        return HttpResponseForbidden("利用停止中の対象者には新しい医療費を追加できません。")
+    form = HospitalNameForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "病院名を1〜150文字で入力してください。")
+        return redirect(f"/medical/{person.id}/?year={year}")
+    hospital_name = form.cleaned_data["hospital_name"]
+    # New names intentionally only navigate.  A MedicalVisit is created after a
+    # valid amount/detail submission on the hospital-specific page.
+    return redirect(f"/medical/{person.id}/hospital/?{urlencode({'year': year, 'name': hospital_name})}")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def medical_person(request, person_id):
+    person = get_object_or_404(Person, pk=person_id)
+    year = _year(request)
+    if request.method == "POST" and not person.is_active:
+        return HttpResponseForbidden("利用停止中の対象者には新しい医療費を追加できません。")
+    if request.method == "POST":
+        messages.error(request, "病院を選択してから受診記録を入力してください。")
+        return redirect(f"{request.path}?year={year}")
+    visits = (
+        MedicalVisit.objects.filter(person=person, record_year=year, deleted_at__isnull=True)
+        .prefetch_related(Prefetch(
+            "entries",
+            queryset=MedicalEntry.objects.filter(deleted_at__isnull=True).order_by("created_at", "id"),
+        ))
+        .annotate(visit_total=Coalesce(Sum("entries__paid_amount_yen", filter=Q(entries__deleted_at__isnull=True)), 0))
+        .filter(visit_total__gt=0)
+        .order_by("-visited_on", "-created_at", "-id")
+    )
+    total = MedicalEntry.objects.filter(person=person, record_year=year, deleted_at__isnull=True).aggregate(total=Sum("paid_amount_yen"))["total"] or 0
+    hospitals = _person_hospital_rollup(person, year)
+    standalone_count = MedicalVisit.objects.filter(
+        person=person, record_year=year, deleted_at__isnull=True,
+        hospital_name="", entries__deleted_at__isnull=True,
+    ).distinct().count()
+    return render(request, "ledger/medical_person.html", {
+        "person": person, "year": year, "visits": visits, "total": total,
+        "hospitals": hospitals, "standalone_count": standalone_count,
+        "hospital_add_form": HospitalNameForm() if person.is_active else None,
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def medical_visit_edit(request, pk):
+    visit = get_object_or_404(MedicalVisit, pk=pk, deleted_at__isnull=True)
+    if request.method == "POST":
+        form = MedicalBatchForm(_medical_post_data(request, visit.record_year))
+        if form.is_valid():
+            if form.cleaned_data["visited_on"].year != visit.record_year:
+                form.add_error("visited_on", f"{visit.record_year}年の日付を入力してください。")
+            else:
+                _save_medical_visit(visit.person, visit.record_year, form, visit)
+                messages.success(request, "受診記録を更新しました。")
+                return redirect(f"/medical/{visit.person_id}/?year={visit.record_year}")
+    else:
+        details = {
+            entry.category: entry
+            for entry in visit.entries.filter(deleted_at__isnull=True).order_by("created_at", "id")
+        }
+        form = MedicalBatchForm(initial={
+            "visited_on": visit.visited_on,
+            "hospital_name": details.get(MedicalEntry.Category.HOSPITAL).provider_name if details.get(MedicalEntry.Category.HOSPITAL) else visit.hospital_name,
+            "hospital_amount": details.get(MedicalEntry.Category.HOSPITAL).paid_amount_yen if details.get(MedicalEntry.Category.HOSPITAL) else None,
+            "pharmacy_name": details.get(MedicalEntry.Category.PHARMACY).provider_name if details.get(MedicalEntry.Category.PHARMACY) else "",
+            "pharmacy_amount": details.get(MedicalEntry.Category.PHARMACY).paid_amount_yen if details.get(MedicalEntry.Category.PHARMACY) else None,
+            "transport_method": details.get(MedicalEntry.Category.TRANSPORT).provider_name if details.get(MedicalEntry.Category.TRANSPORT) else "",
+            "transport_amount": details.get(MedicalEntry.Category.TRANSPORT).paid_amount_yen if details.get(MedicalEntry.Category.TRANSPORT) else None,
+        })
+    return render(request, "ledger/medical_visit_edit.html", {"form": form, "visit": visit})
+
+
+@login_required
+@require_POST
+def medical_visit_delete(request, pk):
+    visit = get_object_or_404(MedicalVisit, pk=pk, deleted_at__isnull=True)
+    now = timezone.now()
+    with transaction.atomic():
+        visit.deleted_at = now
+        visit.save(update_fields=["deleted_at"])
+        visit.entries.filter(deleted_at__isnull=True).update(deleted_at=now)
+        recalculate_medical(visit.person_id, visit.record_year)
+        export_medical_person(visit.record_year, visit.person_id)
+        export_medical_all(visit.record_year)
+    messages.success(request, "受診記録を削除しました。")
+    return redirect(f"/medical/{visit.person_id}/?year={visit.record_year}")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def medical_hospital_detail(request, person_id):
+    person = get_object_or_404(Person, pk=person_id)
+    year = _year(request)
+    hospital_name = request.GET.get("name", "").strip()
+    if not hospital_name or len(hospital_name) > 150:
+        return redirect(f"/medical/{person.id}/?year={year}")
+    if request.method == "POST" and not person.is_active:
+        return HttpResponseForbidden("利用停止中の対象者には新しい医療費を追加できません。")
+    if request.method == "POST":
+        form = MedicalHospitalVisitForm(_medical_post_data(request, year), hospital_name=hospital_name)
+        if form.is_valid():
+            if form.cleaned_data["visited_on"].year != year:
+                form.add_error("visited_on", f"{year}年のページでは{year}年の日付を入力してください。")
+            else:
+                _save_medical_visit(person, year, form, hospital_name=hospital_name)
+                messages.success(request, "受診記録と付随する明細を保存しました。")
+                return redirect(f"{request.path}?{urlencode({'year': year, 'name': hospital_name})}")
+    else:
+        form = MedicalHospitalVisitForm(hospital_name=hospital_name) if person.is_active else None
+    visits = (
+        MedicalVisit.objects.filter(person=person, record_year=year, hospital_name=hospital_name, deleted_at__isnull=True)
+        .prefetch_related(Prefetch(
+            "entries",
+            queryset=MedicalEntry.objects.filter(deleted_at__isnull=True).order_by("created_at", "id"),
+        ))
+        .annotate(visit_total=Coalesce(Sum("entries__paid_amount_yen", filter=Q(entries__deleted_at__isnull=True)), 0))
+        .filter(visit_total__gt=0)
+        .order_by("-visited_on", "-created_at", "-id")
+    )
+    total = sum(visit.visit_total for visit in visits)
+    return render(request, "ledger/medical_hospital_detail.html", {
+        "person": person, "year": year, "hospital_name": hospital_name, "visits": visits, "total": total, "form": form,
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def medical_edit(request, pk):
+    entry = get_object_or_404(MedicalEntry, pk=pk, deleted_at__isnull=True)
+    original_category = entry.category
+    if request.method == "POST":
+        form = MedicalEntryForm(request.POST, instance=entry)
+        if form.is_valid():
+            entry = form.save()
+            if entry.visit_id and (original_category == MedicalEntry.Category.HOSPITAL or entry.category == MedicalEntry.Category.HOSPITAL):
+                entry.visit.hospital_name = entry.provider_name if entry.category == MedicalEntry.Category.HOSPITAL else ""
+                entry.visit.save(update_fields=["hospital_name", "updated_at"])
+            recalculate_medical(entry.person_id, entry.record_year)
+            export_medical_person(entry.record_year, entry.person_id)
+            export_medical_all(entry.record_year)
+            messages.success(request, "医療費の明細を更新しました。")
+            return redirect(f"/medical/{entry.person_id}/?year={entry.record_year}")
+    else:
+        form = MedicalEntryForm(instance=entry)
+    return render(request, "ledger/edit.html", {"form": form, "title": "医療費の明細を編集", "cancel": f"/medical/{entry.person_id}/?year={entry.record_year}"})
+
+
+@login_required
+@require_POST
+def medical_delete(request, pk):
+    entry = get_object_or_404(MedicalEntry, pk=pk, deleted_at__isnull=True)
+    entry.deleted_at = timezone.now()
+    entry.save(update_fields=["deleted_at"])
+    if entry.visit_id:
+        if entry.category == MedicalEntry.Category.HOSPITAL:
+            entry.visit.hospital_name = ""
+            entry.visit.save(update_fields=["hospital_name", "updated_at"])
+        if not entry.visit.entries.filter(deleted_at__isnull=True).exclude(pk=entry.pk).exists():
+            entry.visit.deleted_at = entry.deleted_at
+            entry.visit.save(update_fields=["deleted_at"])
+    recalculate_medical(entry.person_id, entry.record_year)
+    export_medical_person(entry.record_year, entry.person_id)
+    export_medical_all(entry.record_year)
+    messages.success(request, "医療費の明細を削除しました。")
+    return redirect(f"/medical/{entry.person_id}/?year={entry.record_year}")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def people_settings(request, pk=None):
+    instance = get_object_or_404(Person, pk=pk) if pk else None
+    if request.method == "POST":
+        form = PersonForm(request.POST, instance=instance)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "対象者を保存しました。")
+            return redirect("people_settings")
+    else:
+        form = PersonForm(instance=instance)
+    return render(request, "ledger/settings_people.html", {"form": form, "people": Person.objects.all(), "editing": instance})
+
+
+@login_required
+def download_household_csv(request):
+    year, month = _month(request)
+    export_household_month(year, month)
+    return FileResponse(open(household_csv_path(year, month), "rb"), as_attachment=True, filename=f"household-{year}-{month:02d}.csv")
+
+
+@login_required
+def download_medical_csv(request, person_id=None):
+    year = _year(request)
+    if person_id:
+        get_object_or_404(Person, pk=person_id)
+        export_medical_person(year, person_id)
+        path = medical_csv_path(year, person_id)
+        name = f"medical-{year}-person-{person_id}.csv"
+    else:
+        export_medical_all(year)
+        path = Path(settings.RUNTIME_DIR) / "csv" / "medical" / str(year) / "all.csv"
+        name = f"medical-{year}-all.csv"
+    return FileResponse(open(path, "rb"), as_attachment=True, filename=name)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def password_change(request):
+    if request.method == "POST":
+        form = JapanesePasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            user = form.save()
+            update_session_auth_hash(request, user)
+            messages.success(request, "パスワードを変更しました。")
+            return redirect("chooser")
+    else:
+        form = JapanesePasswordChangeForm(request.user)
+    return render(request, "ledger/edit.html", {"form": form, "title": "パスワード変更", "cancel": "/"})

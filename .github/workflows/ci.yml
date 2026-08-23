@@ -1,0 +1,23 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret-not-for-production
+      DEBUG: '1'
+      SECURE_SSL_REDIRECT: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - run: pip-audit -r requirements.txt
+      - run: python manage.py makemigrations --check --dry-run
+      - run: pytest
+  secret-and-data-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gitleaks/gitleaks-action@v2
+      - run: "! git ls-files | grep -E '(\\.env$|\\.sqlite3$|\\.csv$|(^|/)runtime/)'

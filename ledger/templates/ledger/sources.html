@@ -1,0 +1,23 @@
+{% extends 'ledger/base.html' %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>支払い元別</h1>
+    <p>{{ year }}年{{ month }}月の支払い元別合計です。入力は家計簿ページで行います。</p>
+  </div>
+  <a class="button secondary" href="{% url 'payment_link_settings' %}">引き落とし元を設定</a>
+</div>
+<div class="source-grid">
+  {% for source in sources %}
+    <a class="panel source-card" href="{% url 'source_detail' source.id %}?month={{ year }}-{{ month|stringformat:'02d' }}">
+      <span>{{ source.get_kind_display }}</span>
+      <strong>{{ source.name }}</strong>
+      <b>¥{{ source.month_total|default:0|floatformat:0 }}</b>
+      {% if source.kind == 'credit_card' or source.kind == 'bank' %}<small>直接 ¥{{ source.direct_total|floatformat:0 }} / コード決済経由 ¥{{ source.funded_total|floatformat:0 }}</small>{% endif %}
+      {% if not source.is_active %}<small>利用停止中</small>{% endif %}
+    </a>
+  {% empty %}
+    <div class="panel"><p>支払い元がありません。</p><a class="button" href="{% url 'source_settings' %}">支払い元を追加</a></div>
+  {% endfor %}
+</div>
+{% endblock %}

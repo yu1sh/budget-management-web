@@ -1,0 +1,25 @@
+{% extends 'ledger/base.html' %}
+{% block content %}
+<div class="page-heading">
+  <div><p><a href="{% url 'medical_person' person.id %}?year={{ year }}">← {{ person.name }}の医療費一覧</a></p><h1>{{ hospital_name }}</h1><p>{{ person.name }}・{{ year }}年の病院別明細</p><p class="total">¥{{ total|floatformat:0 }}</p></div>
+</div>
+{% if person.is_active %}
+<section class="panel medical-entry-panel">
+  <h2>{{ hospital_name }}に受診記録を追加</h2>
+  <p>病院名は選択済みです。薬局・交通費はこの病院に付随する明細として保存されます。病院の金額、薬局、交通費は入力する項目だけ記入してください。</p>
+  <form method="post">
+    {% csrf_token %}{{ form.non_field_errors }}
+    <div class="medical-date-field"><label>{{ form.visited_on.label }}{{ form.visited_on }}{{ form.visited_on.errors }}</label></div>
+    <div class="medical-cost-grid">
+      <fieldset class="medical-cost-card"><legend>病院（{{ hospital_name }}）</legend><label>{{ form.hospital_amount.label }}{{ form.hospital_amount }}{{ form.hospital_amount.errors }}</label></fieldset>
+      <fieldset class="medical-cost-card"><legend>薬局</legend><label>{{ form.pharmacy_name.label }}{{ form.pharmacy_name }}{{ form.pharmacy_name.errors }}</label><label>{{ form.pharmacy_amount.label }}{{ form.pharmacy_amount }}{{ form.pharmacy_amount.errors }}</label></fieldset>
+      <fieldset class="medical-cost-card"><legend>交通費</legend><label>{{ form.transport_method.label }}{{ form.transport_method }}{{ form.transport_method.errors }}</label><label>{{ form.transport_amount.label }}{{ form.transport_amount }}{{ form.transport_amount.errors }}</label></fieldset>
+    </div>
+    <div class="medical-entry-actions"><button type="submit">受診記録を保存</button></div>
+  </form>
+</section>
+{% else %}<p class="message">この対象者は利用停止中のため、過去の記録を閲覧できますが新規入力はできません。</p>{% endif %}
+<div class="table-toolbar"><button type="button" data-range-mode>範囲選択</button><button type="button" data-print-range disabled>選択範囲を印刷</button><button type="button" data-clear-range>選択解除</button></div>
+<div class="print-title" data-print-title>{{ hospital_name }}の病院別明細 {{ person.name }} {{ year }}年</div>
+<div class="table-wrap hospital-detail-table"><table data-selectable-table data-print-orientation="portrait" tabindex="0"><thead><tr><th>日付</th><th>区分</th><th>病院名/薬局名/交通手段</th><th>金額</th></tr></thead><tbody>{% for visit in visits %}{% for entry in visit.entries.all %}<tr><td>{{ visit.visited_on|date:"Y/m/d" }}</td><td><span class="category-badge category-{{ entry.category }}">{{ entry.get_category_display }}</span></td><td>{{ entry.provider_name }}</td><td class="amount">¥{{ entry.paid_amount_yen|floatformat:0 }}</td></tr>{% endfor %}{% empty %}<tr><td colspan="4" class="empty">この病院の明細はありません。</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

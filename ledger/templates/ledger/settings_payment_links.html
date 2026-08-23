@@ -1,0 +1,48 @@
+{% extends 'ledger/base.html' %}
+{% block title %}コード決済の引き落とし元設定{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>コード決済の引き落とし元設定</h1>
+    <p>コード決済ごとに、実際に請求されるクレジットカードまたは銀行を設定します。</p>
+  </div>
+  <a class="button secondary" href="{% url 'source_settings' %}">支払い元の管理へ戻る</a>
+</div>
+
+{% if not available_sources %}
+  <div class="message error">
+    <p>引き落とし元にできる利用中のクレジットカードまたは銀行がありません。</p>
+    <p><a href="{% url 'source_settings' %}">先に支払い元の管理でカードまたは銀行を追加してください。</a></p>
+  </div>
+{% elif not code_payments %}
+  <div class="message">
+    <p>コード決済がまだ登録されていません。</p>
+    <p><a href="{% url 'source_settings' %}">支払い元の管理でコード決済を追加してください。</a></p>
+  </div>
+{% else %}
+  <section class="panel">
+    <h2>引き落とし元を変更</h2>
+    <form method="post" class="entry-form medical-form">
+      {% csrf_token %}
+      {% for field in form %}
+        <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
+      {% endfor %}
+      <button>設定を保存</button>
+    </form>
+    <p class="field-help">変更後に入力する家計簿へ新しい設定が使われます。過去の明細は、入力時点の設定を保持します。</p>
+  </section>
+{% endif %}
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>コード決済</th><th>現在の引き落とし元</th><th>状態</th></tr></thead>
+    <tbody>
+      {% for source in code_payments %}
+        <tr><td>{{ source.name }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% else %}<span class="danger">未設定</span>{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td></tr>
+      {% empty %}
+        <tr><td colspan="3" class="empty">コード決済がありません。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

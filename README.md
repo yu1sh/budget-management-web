@@ -1,0 +1,60 @@
+# 家計簿・医療費記録
+
+個人・世帯向けの、GitHubからクローンして自分のサーバーだけで使う家計簿／医療費記録アプリです。データはDockerの永続ボリューム内のSQLiteとCSVに保存され、アプリは第三者サービスへ家計情報・医療費情報を送信しません。
+
+## 機能
+
+- 月別家計簿（日付、店名、内訳、金額、支払い元、備考）と当月合計。共通の日付・店名・支払い元に対して複数の「内訳＋金額」行を追加し、1回でまとめて登録できます。
+- カード・コード決済・ポイント・銀行など支払い元別の読取専用集計。専用設定画面でコード決済の引き落とし元を管理でき、決済元と引き落とし元の両方に参照表示されますが、全体合計では一度だけ計上されます。
+- 人別・年別の医療費記録。医療費から対象者を選び、既存病院を選択または新規追加してから、病院専用ページで受診日・病院費用・薬局・交通費を入力します。薬局・交通費は選択した病院に付随する明細として保存されます。人別／全員合計とCSV出力にも対応します。
+- サーバー内CSVミラー、月別・年別CSVダウンロード、毎日03:00の30世代バックアップ
+- 任意の表範囲を選択してブラウザーの印刷／PDF保存
+- 管理者パスワードによるログイン
+
+医療費機能は簡易な記録・集計です。国税庁の明細書に必要な区分や補てん額は扱わないため、そのまま申告書へ取り込めるものではありません。
+
+旧版から更新する場合、既存の医療費明細は削除されません。旧明細には受診日や関連する病院の情報がないため、各行を記録年の1月1日の単独受診記録として移行します。旧薬局・交通費は病院名を推測せず、単独記録として保持します。
+
+## 導入
+
+必要なものは、Docker Compose、独自ドメイン、外部から到達できる80/443番ポートです。DNSのA/AAAAレコードをサーバーに向けてから実行してください。
+
+```bash
+git clone https://github.com/YOUR_ACCOUNT/budget-management-web.git
+cd budget-management-web
+chmod +x setup.sh scripts/*.sh
+./setup.sh
+```
+
+セットアップはドメインと管理者パスワードを端末で対話入力します。パスワードはコマンド履歴、`.env`、コンテナログには保存されません。CaddyがHTTPS証明書を取得した後、表示された `https://` アドレスを開いてください。
+
+ローカル開発では `.env.example` を `.env` にコピーして、必ず固有の`DJANGO_SECRET_KEY`を設定したうえで `DEBUG=1` と `SECURE_SSL_REDIRECT=0` に変更し、`docker compose up --build` を使えます。`DEBUG=0`で秘密鍵が未設定または初期値の場合、アプリは安全のため起動を拒否します。実運用でHTTPのまま公開しないでください。
+
+## 日常運用
+
+```bash
+git pull
+docker compose up -d --build
+docker compose exec app python manage.py bootstrap_admin
+docker compose exec app python manage.py backup_data
+docker compose ps
+```
+
+復元する場合は、先に対象バックアップを安全な場所へコピーし、サーバー上で `./scripts/restore.sh /absolute/path/to/backup` を実行します。復元中はアプリが一時停止します。
+
+## データとプライバシー
+
+- 実データはDocker名前付きボリュームの`/app/runtime`にだけ保存されます。
+- SQLite、CSV、バックアップ、`.env`、ログは`.gitignore`対象です。コミット前に `git status` で確認してください。
+- TLS証明書の取得・更新を除き、実行中のアプリは外部通信を行いません。外部フォント、分析、広告、クラウド保存は使いません。
+- このアプリは1世帯・管理者1アカウント向けです。サーバーのOS更新、ディスク暗号化、ファイアウォールは設置者が管理してください。
+
+## 開発・テスト
+
+```bash
+python -m pip install -r requirements-dev.txt
+DJANGO_SECRET_KEY='local-test-secret' DEBUG=1 SECURE_SSL_REDIRECT=0 python manage.py migrate
+DJANGO_SECRET_KEY='local-test-secret' DEBUG=1 SECURE_SSL_REDIRECT=0 pytest
+```
+
+MIT Licenseで公開しています。テストや画面例には架空のサンプル名称だけを使用してください。

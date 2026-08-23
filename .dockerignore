@@ -1,0 +1,13 @@
+.git
+.env
+runtime/
+*.sqlite3
+*.sqlite3-*
+*.csv
+backups/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+staticfiles/
+playwright-report/
+test-results/

@@ -1,0 +1,1 @@
+{% extends 'ledger/base.html' %}{% block content %}<section class="hero"><h1>何を入力しますか？</h1><p>目的を選んでください。いつでも上部メニューから戻れます。</p><div class="chooser"><a class="choice" href="{% url 'household' %}"><strong>家計簿を入力する</strong><span>支出を月ごとに記録・集計</span></a><a class="choice" href="{% url 'medical' %}"><strong>医療費控除を入力する</strong><span>人ごとの医療費を記録・集計</span></a></div></section>{% endblock %}
