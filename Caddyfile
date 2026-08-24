@@ -1,7 +1,8 @@
-{$DOMAIN} {
+:80 {
   encode zstd gzip
   reverse_proxy app:8000 {
-    header_up X-Forwarded-Proto {scheme}
+    # Cloudflare Tunnel terminates public TLS and connects locally over HTTP.
+    header_up X-Forwarded-Proto https
   }
   header {
     Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"

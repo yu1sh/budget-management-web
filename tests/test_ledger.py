@@ -39,6 +39,29 @@ def test_household_entry_snapshots_and_csv(client, user, sources):
     assert path.exists() and "テスト店" in path.read_text(encoding="utf-8-sig")
     assert client.get(reverse("source_detail", args=[card.id]) + "?month=2026-08").context["funded_total"] == 1200
 
+
+@pytest.mark.django_db
+def test_household_payment_source_snapshot_links_to_each_source_detail(client, user, sources):
+    card, code = sources
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="テスト銀行")
+    point = PaymentSource.objects.create(kind=PaymentSource.Kind.POINT, name="テストポイント")
+    cash = PaymentSource.objects.create(kind=PaymentSource.Kind.CASH, name="現金")
+    all_sources = [card, code, bank, point, cash]
+    for index, source in enumerate(all_sources, start=1):
+        HouseholdEntry.objects.create(
+            spent_on="2026-08-10", shop_name=f"店舗{index}", description="テスト", amount_yen=index,
+            payment_source=source, payment_source_name_snapshot=f"入力時{source.name}",
+            payment_source_kind_snapshot=source.kind,
+        )
+    client.force_login(user)
+    html = client.get(reverse("household") + "?month=2026-08").content.decode()
+    for source in all_sources:
+        href = reverse("source_detail", args=[source.id]) + "?month=2026-08"
+        assert f'href="{href}"' in html
+        assert f">入力時{source.name}</a>" in html
+    css = Path("ledger/static/ledger/site.css").read_text()
+    assert ".payment-source-link" in css and ".print-table a" in css
+
 @pytest.mark.django_db
 def test_household_edit_keeps_original_snapshots_when_source_unchanged(sources):
     card, code = sources
@@ -447,7 +470,7 @@ def test_proxy_cache_backup_and_admin_hardening_are_configured():
     assert settings.SECURE_PROXY_SSL_HEADER == ("HTTP_X_FORWARDED_PROTO", "https")
     assert settings.CACHES["default"]["BACKEND"].endswith("FileBasedCache")
     assert "admin/" not in Path("config/urls.py").read_text()
-    assert "header_up X-Forwarded-Proto {scheme}" in Path("Caddyfile").read_text()
+    assert "header_up X-Forwarded-Proto https" in Path("Caddyfile").read_text()
     assert ".backup(destination)" in Path("ledger/management/commands/backup_data.py").read_text()
     restore = Path("scripts/restore.sh").read_text()
     assert "docker compose run --rm --no-deps" in restore and "docker volume ls" not in restore
