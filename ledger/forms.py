@@ -14,13 +14,13 @@ class DateInput(forms.DateInput):
 class HouseholdEntryForm(forms.ModelForm):
     class Meta:
         model = HouseholdEntry
-        fields = ["spent_on", "shop_name", "description", "amount_yen", "payment_source", "note"]
+        fields = ["spent_on", "shop_name", "description", "amount_yen", "payment_source", "entry_type", "note"]
         widgets = {
             "spent_on": DateInput(),
             "shop_name": forms.TextInput(attrs={"list": "shop-name-suggestions"}),
             "note": forms.Textarea(attrs={"rows": 2}),
         }
-        labels = {"spent_on": "日付", "shop_name": "店名", "description": "内訳", "amount_yen": "金額（円）", "payment_source": "支払い元", "note": "備考"}
+        labels = {"spent_on": "日付", "shop_name": "店名", "description": "内訳", "amount_yen": "金額（円）", "payment_source": "支払い元", "entry_type": "種別", "note": "備考"}
         help_texts = {
             "shop_name": "同じ店名を、異なる内訳で複数行登録できます。",
             "description": "同じ店で複数の用途がある場合は、内訳ごとに1行ずつ登録してください。",
@@ -33,8 +33,25 @@ class HouseholdEntryForm(forms.ModelForm):
         if self.instance.pk and self.instance.payment_source_id:
             sources = PaymentSource.objects.filter(models.Q(is_active=True) | models.Q(pk=self.instance.payment_source_id))
         self.fields["payment_source"].queryset = sources
+        # The field is required only when a flea-market source is selected.
+        # Keeping it optional here lets ordinary existing entries be edited
+        # without submitting an irrelevant value.
+        self.fields["entry_type"].required = False
         if not self.instance.pk:
             self.fields["spent_on"].initial = timezone.localdate()
+
+    def clean(self):
+        cleaned = super().clean()
+        source = cleaned.get("payment_source")
+        entry_type = cleaned.get("entry_type")
+        if not source:
+            return cleaned
+        if source.kind == PaymentSource.Kind.FLEA_MARKET:
+            if entry_type not in (HouseholdEntry.EntryType.FLEA_PROFIT, HouseholdEntry.EntryType.FLEA_WITHDRAWAL):
+                self.add_error("entry_type", "フリマでは利益または出金を選択してください。")
+        else:
+            cleaned["entry_type"] = HouseholdEntry.EntryType.EXPENSE
+        return cleaned
 
     def save(self, commit=True):
         entry = super().save(commit=False)
@@ -63,8 +80,28 @@ class HouseholdBatchForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["payment_source"].queryset = PaymentSource.objects.filter(is_active=True).order_by("kind", "name")
+        self.fields["entry_type"] = forms.ChoiceField(
+            label="フリマ種別",
+            required=False,
+            choices=[("", "選択してください"), (HouseholdEntry.EntryType.FLEA_PROFIT, "利益"), (HouseholdEntry.EntryType.FLEA_WITHDRAWAL, "出金")],
+        )
         if not self.is_bound:
             self.fields["spent_on"].initial = timezone.localdate()
+
+    def clean(self):
+        cleaned = super().clean()
+        source = cleaned.get("payment_source")
+        entry_type = cleaned.get("entry_type")
+        if not source:
+            return cleaned
+        if source.kind == PaymentSource.Kind.FLEA_MARKET:
+            if entry_type not in (HouseholdEntry.EntryType.FLEA_PROFIT, HouseholdEntry.EntryType.FLEA_WITHDRAWAL):
+                self.add_error("entry_type", "フリマでは利益または出金を選択してください。")
+        elif entry_type:
+            self.add_error("entry_type", "フリマ以外の支払い元に利益・出金は指定できません。")
+        else:
+            cleaned["entry_type"] = HouseholdEntry.EntryType.EXPENSE
+        return cleaned
 
 
 class HouseholdBreakdownForm(forms.Form):

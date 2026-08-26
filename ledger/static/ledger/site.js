@@ -24,7 +24,25 @@
     const template = form.querySelector("[data-breakdown-template]");
     const total = form.querySelector('[name="lines-TOTAL_FORMS"]');
     const add = form.querySelector("[data-add-breakdown]");
+    const source = form.querySelector('[name="payment_source"]');
+    const fleaType = form.querySelector("[data-flea-entry-type]");
+    const fleaSourceIds = (form.dataset.fleaSourceIds || "").split(",").filter(Boolean);
     if (!rows || !template || !total || !add) return;
+
+    const updateFleaTypeVisibility = () => {
+      if (!source || !fleaType) return;
+      const select = fleaType.querySelector("select");
+      const isFlea = fleaSourceIds.includes(source.value);
+      fleaType.hidden = !isFlea;
+      fleaType.setAttribute("aria-hidden", String(!isFlea));
+      if (select) {
+        select.disabled = !isFlea;
+        select.required = isFlea;
+        if (!isFlea) select.value = "";
+      }
+    };
+    source?.addEventListener("change", updateFleaTypeVisibility);
+    updateFleaTypeVisibility();
 
     add.addEventListener("click", () => {
       const index = Number(total.value);

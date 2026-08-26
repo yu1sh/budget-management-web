@@ -13,6 +13,7 @@
       <span>{{ source.get_kind_display }}</span>
       <strong>{{ source.name }}</strong>
       <b>¥{{ source.month_total|default:0|floatformat:0 }}</b>
+      {% if source.kind == 'flea_market' %}<small>利益 ¥{{ source.flea_profit_total|floatformat:0 }} / 出金 ¥{{ source.flea_withdrawal_total|floatformat:0 }}（差引）</small>{% endif %}
       {% if source.kind == 'credit_card' or source.kind == 'bank' %}<small>直接 ¥{{ source.direct_total|floatformat:0 }} / コード決済経由 ¥{{ source.funded_total|floatformat:0 }}</small>{% endif %}
       {% if not source.is_active %}<small>利用停止中</small>{% endif %}
     </a>

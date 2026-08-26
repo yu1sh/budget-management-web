@@ -119,6 +119,7 @@ def household(request):
                         payment_source_kind_snapshot=source.kind,
                         linked_source=linked_source,
                         linked_source_name_snapshot=linked_source.name if linked_source else "",
+                        entry_type=form.cleaned_data["entry_type"] or HouseholdEntry.EntryType.EXPENSE,
                         note=form.cleaned_data["note"],
                     )
             export_household_month(form.cleaned_data["spent_on"].year, form.cleaned_data["spent_on"].month)
@@ -128,7 +129,7 @@ def household(request):
         form = HouseholdBatchForm()
         line_formset = HouseholdBreakdownFormSet(prefix="lines")
     entries = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True).select_related("payment_source")
-    total = entries.aggregate(total=Sum("amount_yen"))["total"] or 0
+    total = entries.filter(entry_type=HouseholdEntry.EntryType.EXPENSE).aggregate(total=Sum("amount_yen"))["total"] or 0
     shop_names = (
         HouseholdEntry.objects.filter(deleted_at__isnull=True)
         .order_by("shop_name")
@@ -136,10 +137,20 @@ def household(request):
         .distinct()[:100]
     )
     prev, nxt = _previous_next(year, month)
+    flea_source_ids = list(PaymentSource.objects.filter(
+        is_active=True, kind=PaymentSource.Kind.FLEA_MARKET,
+    ).values_list("id", flat=True))
+    # Render the type control only when the submitted source is a flea-market
+    # source. This prevents a first-paint flash before JavaScript starts.
+    selected_source_id = str(form["payment_source"].value() or "")
+    show_flea_entry_type = selected_source_id in {str(source_id) for source_id in flea_source_ids}
     return render(request, "ledger/household.html", {
         "form": form, "line_formset": line_formset, "entries": entries, "total": total,
         "year": year, "month": month, "prev": prev, "next": nxt, "shop_names": shop_names,
         "has_payment_sources": PaymentSource.objects.filter(is_active=True).exists(),
+        "flea_source_ids": flea_source_ids,
+        "show_flea_entry_type": show_flea_entry_type,
+        "flea_entry_type_error": "entry_type" in form.errors,
     })
 
 
@@ -178,7 +189,15 @@ def sources(request):
     sources_qs = list(PaymentSource.objects.all())
     base = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True)
     for source in sources_qs:
-        source.direct_total = base.filter(payment_source=source).aggregate(total=Sum("amount_yen"))["total"] or 0
+        direct_entries = base.filter(payment_source=source)
+        if source.kind == PaymentSource.Kind.FLEA_MARKET:
+            profit = direct_entries.filter(entry_type=HouseholdEntry.EntryType.FLEA_PROFIT).aggregate(total=Sum("amount_yen"))["total"] or 0
+            withdrawal = direct_entries.filter(entry_type=HouseholdEntry.EntryType.FLEA_WITHDRAWAL).aggregate(total=Sum("amount_yen"))["total"] or 0
+            source.direct_total = profit - withdrawal
+            source.flea_profit_total = profit
+            source.flea_withdrawal_total = withdrawal
+        else:
+            source.direct_total = direct_entries.filter(entry_type=HouseholdEntry.EntryType.EXPENSE).aggregate(total=Sum("amount_yen"))["total"] or 0
         source.funded_total = base.filter(linked_source=source).exclude(payment_source=source).aggregate(total=Sum("amount_yen"))["total"] or 0
         source.month_total = source.direct_total + source.funded_total if source.kind in (PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK) else source.direct_total
     return render(request, "ledger/sources.html", {"sources": sources_qs, "year": year, "month": month})
@@ -190,11 +209,38 @@ def source_detail(request, pk):
     year, month = _month(request)
     base = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True)
     direct = base.filter(payment_source=source).select_related("payment_source", "linked_source")
+    if source.kind != PaymentSource.Kind.FLEA_MARKET:
+        direct = direct.filter(entry_type=HouseholdEntry.EntryType.EXPENSE)
     funded = base.filter(linked_source=source).exclude(payment_source=source).select_related("payment_source", "linked_source")
     direct_total = direct.aggregate(total=Sum("amount_yen"))["total"] or 0
     funded_total = funded.aggregate(total=Sum("amount_yen"))["total"] or 0
     breakdown = direct.values("description").annotate(total=Sum("amount_yen")).order_by("-total", "description")
-    return render(request, "ledger/source_detail.html", {"source": source, "year": year, "month": month, "direct": direct, "funded": funded, "direct_total": direct_total, "funded_total": funded_total, "breakdown": breakdown})
+    flea_profit_total = flea_withdrawal_total = flea_balance = 0
+    if source.kind == PaymentSource.Kind.FLEA_MARKET:
+        flea_profit_total = direct.filter(entry_type=HouseholdEntry.EntryType.FLEA_PROFIT).aggregate(total=Sum("amount_yen"))["total"] or 0
+        flea_withdrawal_total = direct.filter(entry_type=HouseholdEntry.EntryType.FLEA_WITHDRAWAL).aggregate(total=Sum("amount_yen"))["total"] or 0
+        all_flea = HouseholdEntry.objects.filter(payment_source=source, deleted_at__isnull=True)
+        all_profit = all_flea.filter(entry_type=HouseholdEntry.EntryType.FLEA_PROFIT).aggregate(total=Sum("amount_yen"))["total"] or 0
+        all_withdrawal = all_flea.filter(entry_type=HouseholdEntry.EntryType.FLEA_WITHDRAWAL).aggregate(total=Sum("amount_yen"))["total"] or 0
+        flea_balance = all_profit - all_withdrawal
+    return render(request, "ledger/source_detail.html", {
+        "source": source, "year": year, "month": month, "direct": direct, "funded": funded,
+        "direct_total": direct_total, "funded_total": funded_total, "breakdown": breakdown,
+        "flea_profit_total": flea_profit_total, "flea_withdrawal_total": flea_withdrawal_total,
+        "flea_balance": flea_balance,
+    })
+
+
+@login_required
+def flea_market_edit(request, source_id, pk):
+    source = get_object_or_404(PaymentSource, pk=source_id)
+    return redirect(f"/sources/{source.id}/?month={_month(request)[0]}-{_month(request)[1]:02d}")
+
+
+@login_required
+def flea_market_delete(request, source_id, pk):
+    source = get_object_or_404(PaymentSource, pk=source_id)
+    return redirect(f"/sources/{source.id}/?month={_month(request)[0]}-{_month(request)[1]:02d}")
 
 
 @login_required
@@ -530,6 +576,13 @@ def download_household_csv(request):
     year, month = _month(request)
     export_household_month(year, month)
     return FileResponse(open(household_csv_path(year, month), "rb"), as_attachment=True, filename=f"household-{year}-{month:02d}.csv")
+
+
+@login_required
+def download_flea_market_csv(request, source_id):
+    source = get_object_or_404(PaymentSource, pk=source_id)
+    year, month = _month(request)
+    return redirect(f"/sources/{source.id}/?month={year}-{month:02d}")
 
 
 @login_required

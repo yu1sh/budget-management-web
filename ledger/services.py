@@ -6,12 +6,20 @@ from tempfile import NamedTemporaryFile
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
-from .models import HouseholdEntry, MedicalEntry, MedicalVisit
+from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource
 
 
 def csv_safe(value):
     text = "" if value is None else str(value)
     return "'" + text if text[:1] in ("=", "+", "-", "@") else text
+
+
+def payment_source_kind_label(kind):
+    try:
+        return PaymentSource.Kind(kind).label
+    except ValueError:
+        # Keep historical/raw values exportable even if a retired type exists.
+        return kind
 
 
 def _replace_csv(path: Path, header, rows):
@@ -36,8 +44,9 @@ def export_household_month(year, month):
     entries = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True).order_by("spent_on", "created_at", "id")
     rows = [[e.id, e.spent_on.isoformat(), csv_safe(e.shop_name), csv_safe(e.description), e.amount_yen,
              e.payment_source_id, e.payment_source_kind_snapshot, csv_safe(e.payment_source_name_snapshot),
-             csv_safe(e.linked_source_name_snapshot), csv_safe(e.note), e.created_at.isoformat(), e.updated_at.isoformat()] for e in entries]
-    _replace_csv(household_csv_path(year, month), ["id", "日付", "店名", "内訳", "金額", "支払い元ID", "支払い元種類", "支払い元名", "コード決済引き落とし元", "備考", "作成日時", "更新日時"], rows)
+             csv_safe(e.linked_source_name_snapshot), csv_safe(e.note), e.created_at.isoformat(), e.updated_at.isoformat(),
+             payment_source_kind_label(e.payment_source_kind_snapshot), e.get_entry_type_display()] for e in entries]
+    _replace_csv(household_csv_path(year, month), ["id", "日付", "店名", "内訳", "金額", "支払い元ID", "支払い元種類", "支払い元名", "コード決済引き落とし元", "備考", "作成日時", "更新日時", "支払い元種類表示", "種別"], rows)
 
 
 def recalculate_medical(person_id, year):

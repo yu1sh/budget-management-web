@@ -9,6 +9,8 @@ class PaymentSource(models.Model):
         POINT = "point", "ポイント"
         BANK = "bank", "銀行"
         CASH = "cash", "現金・その他"
+        TRANSIT = "transit", "交通系"
+        FLEA_MARKET = "flea_market", "フリマ"
 
     kind = models.CharField(max_length=20, choices=Kind.choices)
     name = models.CharField(max_length=100)
@@ -27,10 +29,16 @@ class PaymentSource(models.Model):
 
 
 class HouseholdEntry(models.Model):
+    class EntryType(models.TextChoices):
+        EXPENSE = "expense", "通常支出"
+        FLEA_PROFIT = "flea_profit", "フリマ利益"
+        FLEA_WITHDRAWAL = "flea_withdrawal", "フリマ出金"
+
     spent_on = models.DateField()
     shop_name = models.CharField(max_length=150)
     description = models.CharField(max_length=200)
     amount_yen = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    entry_type = models.CharField(max_length=20, choices=EntryType.choices, default=EntryType.EXPENSE)
     payment_source = models.ForeignKey(PaymentSource, on_delete=models.PROTECT, related_name="entries")
     payment_source_name_snapshot = models.CharField(max_length=100)
     payment_source_kind_snapshot = models.CharField(max_length=20)

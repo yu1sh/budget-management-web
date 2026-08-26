@@ -62,6 +62,26 @@ def test_household_payment_source_snapshot_links_to_each_source_detail(client, u
     css = Path("ledger/static/ledger/site.css").read_text()
     assert ".payment-source-link" in css and ".print-table a" in css
 
+
+@pytest.mark.django_db
+def test_transit_payment_source_is_available_to_household_and_uses_japanese_label(client, user):
+    transit = PaymentSource.objects.create(kind=PaymentSource.Kind.TRANSIT, name="テストSuica")
+    client.force_login(user)
+    response = client.post(reverse("household"), {
+        "spent_on": "2026-08-20", "shop_name": "駅売店", "description": "飲料",
+        "amount_yen": 180, "payment_source": transit.id, "note": "",
+    })
+    assert response.status_code == 302
+    entry = HouseholdEntry.objects.get()
+    assert (entry.payment_source, entry.payment_source_kind_snapshot) == (transit, PaymentSource.Kind.TRANSIT)
+    html = client.get(reverse("sources") + "?month=2026-08").content.decode()
+    assert "交通系" in html and "テストSuica" in html
+    csv_text = (Path(settings.RUNTIME_DIR) / "csv" / "household" / "2026" / "2026-08.csv").read_text(encoding="utf-8-sig")
+    assert "transit" in csv_text and "交通系" in csv_text
+    kind_choices = dict(PaymentSourceForm().fields["kind"].choices)
+    assert kind_choices[PaymentSource.Kind.TRANSIT] == "交通系"
+    assert kind_choices[PaymentSource.Kind.FLEA_MARKET] == "フリマ"
+
 @pytest.mark.django_db
 def test_household_edit_keeps_original_snapshots_when_source_unchanged(sources):
     card, code = sources
@@ -330,6 +350,117 @@ def test_source_list_combines_card_direct_and_code_payment_paths(client, user, s
 
 
 @pytest.mark.django_db
+def test_flea_market_entries_use_household_batch_form_and_stay_out_of_expense_total(client, user, sources):
+    card, _ = sources
+    flea = PaymentSource.objects.create(
+        kind=PaymentSource.Kind.FLEA_MARKET, name="テストフリマ", note="改行あり\n<script>alert(1)</script>"
+    )
+    HouseholdEntry.objects.create(
+        spent_on="2026-08-05", shop_name="通常支出", description="食費", amount_yen=500,
+        payment_source=card, payment_source_name_snapshot=card.name, payment_source_kind_snapshot=card.kind,
+    )
+    client.force_login(user)
+    payload = {
+        "spent_on": "2026-08-10", "shop_name": "メルカリ", "payment_source": flea.id,
+        "entry_type": HouseholdEntry.EntryType.FLEA_PROFIT, "note": "=SUM(A1:A2)",
+        "lines-TOTAL_FORMS": "2", "lines-INITIAL_FORMS": "0", "lines-MIN_NUM_FORMS": "0", "lines-MAX_NUM_FORMS": "50",
+        "lines-0-description": "販売A", "lines-0-amount_yen": "1000",
+        "lines-1-description": "販売B", "lines-1-amount_yen": "200",
+    }
+    assert client.post(reverse("household"), payload).status_code == 302
+    withdrawal = {**payload, "entry_type": HouseholdEntry.EntryType.FLEA_WITHDRAWAL,
+                  "lines-TOTAL_FORMS": "1", "lines-0-description": "振込", "lines-0-amount_yen": "300"}
+    assert client.post(reverse("household"), withdrawal).status_code == 302
+    flea_entries = HouseholdEntry.objects.filter(payment_source=flea, deleted_at__isnull=True)
+    assert sorted(flea_entries.values_list("entry_type", "amount_yen")) == [
+        ("flea_profit", 200), ("flea_profit", 1000), ("flea_withdrawal", 300),
+    ]
+    detail_url = reverse("source_detail", args=[flea.id]) + "?month=2026-08"
+    page = client.get(detail_url)
+    html = page.content.decode()
+    assert page.status_code == 200
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html and "<br>" in html
+    assert "フリマ取引を登録" not in html and 'data-selectable-table' in html and 'data-print-range' in html
+    assert (page.context["flea_profit_total"], page.context["flea_withdrawal_total"], page.context["flea_balance"]) == (1200, 300, 900)
+    assert client.get(reverse("household") + "?month=2026-08").context["total"] == 500
+    csv_response = client.get(reverse("household_export") + "?month=2026-08")
+    assert csv_response.status_code == 200 and csv_response["Content-Disposition"].startswith("attachment;")
+    csv_text = b"".join(csv_response.streaming_content).decode("utf-8-sig")
+    assert "種別" in csv_text and "フリマ利益" in csv_text and "フリマ出金" in csv_text and "'=SUM(A1:A2)" in csv_text
+    assert "フリマ" in client.get(reverse("sources") + "?month=2026-08").content.decode()
+
+
+@pytest.mark.django_db
+def test_household_rejects_flea_type_for_non_flea_source_and_normalizes_edit(client, user, sources):
+    card, _ = sources
+    client.force_login(user)
+    payload = {
+        "spent_on": "2026-08-10", "shop_name": "不正店", "payment_source": card.id,
+        "entry_type": HouseholdEntry.EntryType.FLEA_PROFIT,
+        "lines-TOTAL_FORMS": "1", "lines-INITIAL_FORMS": "0", "lines-MIN_NUM_FORMS": "0", "lines-MAX_NUM_FORMS": "50",
+        "lines-0-description": "食費", "lines-0-amount_yen": "100",
+    }
+    response = client.post(reverse("household"), payload)
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "フリマ以外の支払い元" in html
+    assert 'data-flea-entry-type aria-live="polite" hidden aria-hidden="true"' in html
+    assert 'role="alert"' in html
+    assert not HouseholdEntry.objects.filter(shop_name="不正店").exists()
+
+    flea = PaymentSource.objects.create(kind=PaymentSource.Kind.FLEA_MARKET, name="編集フリマ")
+    entry = HouseholdEntry.objects.create(
+        spent_on="2026-08-10", shop_name="メルカリ", description="販売", amount_yen=100,
+        entry_type=HouseholdEntry.EntryType.FLEA_PROFIT, payment_source=flea,
+        payment_source_name_snapshot=flea.name, payment_source_kind_snapshot=flea.kind,
+    )
+    response = client.post(reverse("household_edit", args=[entry.id]), {
+        "spent_on": "2026-08-10", "shop_name": "編集済み", "description": "販売", "amount_yen": "100",
+        "payment_source": card.id, "entry_type": HouseholdEntry.EntryType.FLEA_PROFIT, "note": "",
+    })
+    assert response.status_code == 302
+    entry.refresh_from_db()
+    assert entry.entry_type == HouseholdEntry.EntryType.EXPENSE
+    missing_type = HouseholdEntryForm({
+        "spent_on": "2026-08-10", "shop_name": "編集済み", "description": "販売", "amount_yen": "100",
+        "payment_source": flea.id, "entry_type": "", "note": "",
+    }, instance=entry)
+    assert not missing_type.is_valid() and "entry_type" in missing_type.errors
+
+
+@pytest.mark.django_db
+def test_household_flea_type_is_hidden_initially_and_visible_after_flea_validation_error(client, user):
+    flea = PaymentSource.objects.create(kind=PaymentSource.Kind.FLEA_MARKET, name="表示フリマ")
+    client.force_login(user)
+    initial = client.get(reverse("household"))
+    assert initial.status_code == 200
+    assert 'data-flea-entry-type aria-live="polite" hidden aria-hidden="true"' in initial.content.decode()
+
+    response = client.post(reverse("household"), {
+        "spent_on": "2026-08-10", "shop_name": "メルカリ", "payment_source": flea.id,
+        "entry_type": "", "note": "",
+        "lines-TOTAL_FORMS": "1", "lines-INITIAL_FORMS": "0", "lines-MIN_NUM_FORMS": "0", "lines-MAX_NUM_FORMS": "50",
+        "lines-0-description": "販売", "lines-0-amount_yen": "100",
+    })
+    html = response.content.decode()
+    assert response.status_code == 200
+    assert "フリマでは利益または出金を選択してください。" in html
+    assert f'value="{flea.id}" selected' in html
+    assert 'data-flea-entry-type aria-live="polite" aria-hidden="false"' in html
+    assert 'data-flea-entry-type aria-live="polite" hidden' not in html
+
+
+@pytest.mark.django_db
+def test_flea_legacy_urls_redirect_and_migration_contains_data_copy(client, user):
+    source = PaymentSource.objects.create(kind=PaymentSource.Kind.FLEA_MARKET, name="互換フリマ")
+    client.force_login(user)
+    response = client.get(reverse("flea_market_export", args=[source.id]) + "?month=2026-08")
+    assert response.status_code == 302 and response.url == f"/sources/{source.id}/?month=2026-08"
+    migration = Path("ledger/migrations/0005_householdentry_entry_type_replace_flea_transactions.py").read_text()
+    assert "FleaMarketTransaction" in migration and "entry_type=entry_type" in migration and "deleted_at=item.deleted_at" in migration
+
+
+@pytest.mark.django_db
 def test_payment_link_settings_updates_future_code_payment_source(client, user, sources):
     first_card, code = sources
     second_card = PaymentSource.objects.create(kind="credit_card", name="別のサンプルカード")
@@ -455,6 +586,7 @@ def test_user_labels_and_no_inline_submit_handlers():
     assert "pointermove" in script and "elementFromPoint" in script and "dataset.confirm" in script
     site_script = Path("ledger/static/ledger/site.js").read_text()
     assert "lines-TOTAL_FORMS" in site_script and "data-remove-breakdown" in site_script
+    assert "fleaType.hidden = !isFlea" in site_script and "select.required = isFlea" in site_script
     css = Path("ledger/static/ledger/site.css").read_text()
     assert ".common-entry-grid" in css and ".breakdown-row" in css and "@media(max-width:760px)" in css
     assert ".medical-cost-grid" in css and ".medical-cost-card" in css
