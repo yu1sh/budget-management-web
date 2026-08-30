@@ -4,7 +4,27 @@ from django.db import models
 from django.forms import BaseFormSet, formset_factory
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-from .models import HouseholdEntry, MedicalEntry, PaymentSource, Person
+from .models import HouseholdEntry, MedicalEntry, PaymentSource, Person, resolve_settlement
+
+
+def allowed_linked_kinds(kind):
+    if kind == PaymentSource.Kind.CODE:
+        return (PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH)
+    if kind == PaymentSource.Kind.CREDIT:
+        return (PaymentSource.Kind.BANK,)
+    return ()
+
+
+def has_link_cycle(source, linked):
+    """Protect against cycles even if data imported outside the normal forms."""
+    seen = {source.pk} if source and source.pk else set()
+    current = linked
+    while current:
+        if current.pk in seen:
+            return True
+        seen.add(current.pk)
+        current = current.linked_source
+    return False
 
 
 class DateInput(forms.DateInput):
@@ -57,10 +77,14 @@ class HouseholdEntryForm(forms.ModelForm):
         entry = super().save(commit=False)
         if not entry.pk or entry.payment_source_id != self._original_payment_source_id:
             source = entry.payment_source
+            linked_source, settlement_source, settlement_path = resolve_settlement(source)
             entry.payment_source_name_snapshot = source.name
             entry.payment_source_kind_snapshot = source.kind
-            entry.linked_source = source.linked_source if source.kind == PaymentSource.Kind.CODE else None
-            entry.linked_source_name_snapshot = entry.linked_source.name if entry.linked_source else ""
+            entry.linked_source = linked_source
+            entry.linked_source_name_snapshot = linked_source.name if linked_source else ""
+            entry.settlement_source = settlement_source
+            entry.settlement_source_name_snapshot = settlement_source.name if settlement_source else ""
+            entry.settlement_path_snapshot = settlement_path
         if commit:
             entry.save()
         return entry
@@ -168,7 +192,7 @@ class PaymentSourceForm(forms.ModelForm):
         }
         labels = {"kind": "種類", "name": "名称", "linked_source": "引き落とし元", "note": "メモ", "is_active": "利用中"}
         help_texts = {
-            "linked_source": "コード決済の場合に、実際に引き落とされるクレジットカードまたは銀行を選択します。",
+            "linked_source": "コード決済は必須でカード・銀行・現金、クレジットカードは任意で銀行を設定できます。",
             "is_active": "オフにすると、新しい家計簿入力の選択肢から外れます。過去の明細は残ります。",
         }
 
@@ -176,13 +200,13 @@ class PaymentSourceForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         linked_sources = PaymentSource.objects.filter(
             is_active=True,
-            kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK),
+            kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
         )
         if self.instance.pk and self.instance.linked_source_id:
             linked_sources = PaymentSource.objects.filter(
                 models.Q(
                     is_active=True,
-                    kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK),
+                    kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
                 )
                 | models.Q(pk=self.instance.linked_source_id)
             )
@@ -191,38 +215,60 @@ class PaymentSourceForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         kind, linked = cleaned.get("kind"), cleaned.get("linked_source")
+        allowed = allowed_linked_kinds(kind)
         if kind == PaymentSource.Kind.CODE:
             if not linked:
-                self.add_error("linked_source", "コード決済には引き落とし元のカードまたは銀行を選んでください。")
-            elif linked.kind not in (PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK):
-                self.add_error("linked_source", "引き落とし元にはクレジットカードまたは銀行を選んでください。")
+                self.add_error("linked_source", "コード決済には引き落とし元を選んでください。")
+            elif linked.kind not in allowed:
+                self.add_error("linked_source", "選択した種類に設定できない引き落とし元です。")
+            elif not linked.is_active and linked.pk != self.instance.linked_source_id:
+                self.add_error("linked_source", "新しく設定する引き落とし元は利用中のものを選んでください。")
+        elif kind == PaymentSource.Kind.CREDIT:
+            if linked and linked.kind not in allowed:
+                self.add_error("linked_source", "クレジットカードの引き落とし元には銀行を選んでください。")
+            elif linked and not linked.is_active and linked.pk != self.instance.linked_source_id:
+                self.add_error("linked_source", "新しく設定する引き落とし元は利用中のものを選んでください。")
         elif linked:
-            self.add_error("linked_source", "引き落とし元はコード決済にだけ設定できます。")
+            self.add_error("linked_source", "この種類には引き落とし元を設定できません。")
         if self.instance.pk and linked and linked.pk == self.instance.pk:
             self.add_error("linked_source", "自分自身は引き落とし元にできません。")
+        elif self.instance.pk and linked and has_link_cycle(self.instance, linked):
+            self.add_error("linked_source", "引き落とし元の循環は設定できません。")
         return cleaned
 
 
 class PaymentLinkForm(forms.Form):
     code_payment = forms.ModelChoiceField(
-        label="コード決済",
+        label="設定対象",
         queryset=PaymentSource.objects.none(),
     )
     linked_source = forms.ModelChoiceField(
         label="引き落とし元",
         queryset=PaymentSource.objects.none(),
-        help_text="クレジットカードまたは銀行を選択してください。",
+        help_text="コード決済はカード・銀行・現金、カードは銀行を選択してください。",
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["code_payment"].queryset = PaymentSource.objects.filter(
-            kind=PaymentSource.Kind.CODE
+            kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT)
         ).order_by("name")
         self.fields["linked_source"].queryset = PaymentSource.objects.filter(
-            is_active=True,
-            kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK),
+            kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
         ).order_by("kind", "name")
+
+    def clean(self):
+        cleaned = super().clean()
+        source, linked = cleaned.get("code_payment"), cleaned.get("linked_source")
+        if not source or not linked:
+            return cleaned
+        if linked.kind not in allowed_linked_kinds(source.kind):
+            self.add_error("linked_source", "選択した種類に設定できない引き落とし元です。")
+        elif not linked.is_active and linked.pk != source.linked_source_id:
+            self.add_error("linked_source", "新しく設定する引き落とし元は利用中のものを選んでください。")
+        elif source.pk == linked.pk or has_link_cycle(source, linked):
+            self.add_error("linked_source", "自分自身または循環する引き落とし元は設定できません。")
+        return cleaned
 
 
 class PersonForm(forms.ModelForm):

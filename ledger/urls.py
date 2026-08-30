@@ -7,6 +7,7 @@ urlpatterns = [
     path("household/", views.household, name="household"), path("household/<int:pk>/edit/", views.household_edit, name="household_edit"), path("household/<int:pk>/delete/", views.household_delete, name="household_delete"),
     path("household/export/", views.download_household_csv, name="household_export"),
     path("sources/", views.sources, name="sources"), path("sources/<int:pk>/", views.source_detail, name="source_detail"),
+    path("settlements/", views.settlements, name="settlements"), path("settlements/<int:pk>/", views.settlement_detail, name="settlement_detail"),
     path("sources/<int:source_id>/flea-market/export/", views.download_flea_market_csv, name="flea_market_export"),
     path("sources/<int:source_id>/flea-market/<int:pk>/edit/", views.flea_market_edit, name="flea_market_edit"),
     path("sources/<int:source_id>/flea-market/<int:pk>/delete/", views.flea_market_delete, name="flea_market_delete"),

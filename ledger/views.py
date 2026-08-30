@@ -26,7 +26,7 @@ from .forms import (
     PaymentSourceForm,
     PersonForm,
 )
-from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person
+from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person, resolve_settlement
 from .services import (export_household_month, export_medical_all, export_medical_person,
                        household_csv_path, medical_csv_path, recalculate_medical)
 
@@ -106,7 +106,7 @@ def household(request):
         line_formset = HouseholdBreakdownFormSet(data, prefix="lines")
         if form.is_valid() and line_formset.is_valid():
             source = form.cleaned_data["payment_source"]
-            linked_source = source.linked_source if source.kind == PaymentSource.Kind.CODE else None
+            linked_source, settlement_source, settlement_path = resolve_settlement(source)
             with transaction.atomic():
                 for line in line_formset.active_rows:
                     HouseholdEntry.objects.create(
@@ -119,6 +119,9 @@ def household(request):
                         payment_source_kind_snapshot=source.kind,
                         linked_source=linked_source,
                         linked_source_name_snapshot=linked_source.name if linked_source else "",
+                        settlement_source=settlement_source,
+                        settlement_source_name_snapshot=settlement_source.name if settlement_source else "",
+                        settlement_path_snapshot=settlement_path,
                         entry_type=form.cleaned_data["entry_type"] or HouseholdEntry.EntryType.EXPENSE,
                         note=form.cleaned_data["note"],
                     )
@@ -208,10 +211,10 @@ def source_detail(request, pk):
     source = get_object_or_404(PaymentSource, pk=pk)
     year, month = _month(request)
     base = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True)
-    direct = base.filter(payment_source=source).select_related("payment_source", "linked_source")
+    direct = base.filter(payment_source=source).select_related("payment_source", "linked_source", "settlement_source")
     if source.kind != PaymentSource.Kind.FLEA_MARKET:
         direct = direct.filter(entry_type=HouseholdEntry.EntryType.EXPENSE)
-    funded = base.filter(linked_source=source).exclude(payment_source=source).select_related("payment_source", "linked_source")
+    funded = base.filter(linked_source=source).exclude(payment_source=source).select_related("payment_source", "linked_source", "settlement_source")
     direct_total = direct.aggregate(total=Sum("amount_yen"))["total"] or 0
     funded_total = funded.aggregate(total=Sum("amount_yen"))["total"] or 0
     breakdown = direct.values("description").annotate(total=Sum("amount_yen")).order_by("-total", "description")
@@ -228,6 +231,44 @@ def source_detail(request, pk):
         "direct_total": direct_total, "funded_total": funded_total, "breakdown": breakdown,
         "flea_profit_total": flea_profit_total, "flea_withdrawal_total": flea_withdrawal_total,
         "flea_balance": flea_balance,
+    })
+
+
+@login_required
+def settlements(request):
+    """Aggregate each ordinary expense exactly once by its final settlement source."""
+    year, month = _month(request)
+    base = HouseholdEntry.objects.filter(
+        spent_on__year=year, spent_on__month=month, deleted_at__isnull=True,
+        entry_type=HouseholdEntry.EntryType.EXPENSE,
+    )
+    grouped = base.filter(settlement_source__isnull=False).values("settlement_source_id").annotate(
+        total=Sum("amount_yen"), entry_count=Count("id"),
+    )
+    totals = {row["settlement_source_id"]: row for row in grouped}
+    settlement_sources = list(PaymentSource.objects.filter(pk__in=totals).order_by("kind", "name"))
+    for source in settlement_sources:
+        source.month_total = totals[source.id]["total"]
+        source.entry_count = totals[source.id]["entry_count"]
+    unset_total = base.filter(settlement_source__isnull=True).aggregate(total=Sum("amount_yen"))["total"] or 0
+    unset_count = base.filter(settlement_source__isnull=True).count()
+    return render(request, "ledger/settlements.html", {
+        "sources": settlement_sources, "year": year, "month": month,
+        "unset_total": unset_total, "unset_count": unset_count,
+    })
+
+
+@login_required
+def settlement_detail(request, pk):
+    source = get_object_or_404(PaymentSource, pk=pk)
+    year, month = _month(request)
+    entries = HouseholdEntry.objects.filter(
+        settlement_source=source, spent_on__year=year, spent_on__month=month,
+        deleted_at__isnull=True, entry_type=HouseholdEntry.EntryType.EXPENSE,
+    ).select_related("payment_source", "linked_source", "settlement_source")
+    total = entries.aggregate(total=Sum("amount_yen"))["total"] or 0
+    return render(request, "ledger/settlement_detail.html", {
+        "source": source, "year": year, "month": month, "entries": entries, "total": total,
     })
 
 
@@ -264,29 +305,30 @@ def payment_link_settings(request):
     if request.method == "POST":
         form = PaymentLinkForm(request.POST)
         if form.is_valid():
-            code_payment = form.cleaned_data["code_payment"]
-            code_payment.linked_source = form.cleaned_data["linked_source"]
-            code_payment.save(update_fields=["linked_source", "updated_at"])
+            payment_source = form.cleaned_data["code_payment"]
+            payment_source.linked_source = form.cleaned_data["linked_source"]
+            payment_source.save(update_fields=["linked_source", "updated_at"])
             messages.success(
                 request,
-                f"{code_payment.name}の引き落とし元を{code_payment.linked_source.name}に設定しました。",
+                f"{payment_source.name}の引き落とし元を{payment_source.linked_source.name}に設定しました。",
             )
             return redirect("payment_link_settings")
     else:
         form = PaymentLinkForm()
-    code_payments = PaymentSource.objects.filter(
-        kind=PaymentSource.Kind.CODE
+    linkable_payments = PaymentSource.objects.filter(
+        kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT)
     ).select_related("linked_source").order_by("name")
     available_sources = PaymentSource.objects.filter(
         is_active=True,
-        kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK),
-    ).exists()
+        kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
+    ).exists() or linkable_payments.filter(linked_source__isnull=False).exists()
     return render(
         request,
         "ledger/settings_payment_links.html",
         {
             "form": form,
-            "code_payments": code_payments,
+            "linkable_payments": linkable_payments,
+            "all_sources": PaymentSource.objects.all(),
             "available_sources": available_sources,
         },
     )

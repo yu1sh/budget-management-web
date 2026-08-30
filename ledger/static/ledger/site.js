@@ -6,15 +6,47 @@
     const linkedSource = form.querySelector("[data-linked-source-field]");
     if (!kind || !linkedSource) return;
 
+    const sourceKinds = Object.fromEntries((form.dataset.sourceKinds || "").split(",").filter(Boolean).map((item) => item.split(":")));
+    const allowedKinds = (sourceKind) => sourceKind === "code_payment"
+      ? ["credit_card", "bank", "cash"] : sourceKind === "credit_card" ? ["bank"] : [];
     const updateLinkedSourceVisibility = () => {
-      const isCodePayment = kind.value === "code_payment";
-      linkedSource.hidden = !isCodePayment;
+      const allowed = allowedKinds(kind.value);
+      linkedSource.hidden = !allowed.length;
       const select = linkedSource.querySelector("select");
-      if (select) select.disabled = !isCodePayment;
+      if (select) {
+        select.disabled = !allowed.length;
+        select.required = kind.value === "code_payment";
+        [...select.options].forEach((option) => {
+          if (!option.value) return;
+          option.disabled = !allowed.includes(sourceKinds[option.value]);
+        });
+        if (select.value && !allowed.includes(sourceKinds[select.value])) select.value = "";
+      }
     };
 
     kind.addEventListener("change", updateLinkedSourceVisibility);
     updateLinkedSourceVisibility();
+  });
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const form = document.querySelector("[data-payment-link-form]");
+    if (!form) return;
+    const target = form.querySelector("#id_code_payment");
+    const linked = form.querySelector("#id_linked_source");
+    const sourceKinds = Object.fromEntries((form.dataset.sourceKinds || "").split(",").filter(Boolean).map((item) => item.split(":")));
+    const allowedKinds = (sourceKind) => sourceKind === "code_payment"
+      ? ["credit_card", "bank", "cash"] : sourceKind === "credit_card" ? ["bank"] : [];
+    const updateOptions = () => {
+      if (!target || !linked) return;
+      const allowed = allowedKinds(sourceKinds[target.value]);
+      [...linked.options].forEach((option) => {
+        if (!option.value) return;
+        option.disabled = !allowed.includes(sourceKinds[option.value]);
+      });
+      if (linked.value && !allowed.includes(sourceKinds[linked.value])) linked.value = "";
+    };
+    target?.addEventListener("change", updateOptions);
+    updateOptions();
   });
 
   document.addEventListener("DOMContentLoaded", () => {

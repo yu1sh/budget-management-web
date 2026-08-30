@@ -467,7 +467,7 @@ def test_payment_link_settings_updates_future_code_payment_source(client, user, 
     client.force_login(user)
     page = client.get(reverse("payment_link_settings"))
     assert page.status_code == 200
-    assert "コード決済の引き落とし元設定" in page.content.decode()
+    assert "引き落とし元設定" in page.content.decode()
     response = client.post(
         reverse("payment_link_settings"),
         {"code_payment": code.id, "linked_source": second_card.id},
@@ -475,6 +475,119 @@ def test_payment_link_settings_updates_future_code_payment_source(client, user, 
     assert response.status_code == 302
     code.refresh_from_db()
     assert code.linked_source == second_card
+
+
+@pytest.mark.django_db
+def test_payment_source_link_rules_and_cycle_protection():
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="連携銀行")
+    cash = PaymentSource.objects.create(kind=PaymentSource.Kind.CASH, name="連携現金")
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="連携カード", linked_source=bank)
+    code = PaymentSource.objects.create(kind=PaymentSource.Kind.CODE, name="連携コード", linked_source=card)
+
+    for linked in (card, bank, cash):
+        form = PaymentSourceForm({"kind": PaymentSource.Kind.CODE, "name": f"コード{linked.id}", "linked_source": linked.id, "is_active": "on"})
+        assert form.is_valid()
+    credit_form = PaymentSourceForm({"kind": PaymentSource.Kind.CREDIT, "name": "カード追加", "linked_source": bank.id, "is_active": "on"})
+    assert credit_form.is_valid()
+    card_without_bank = PaymentSourceForm({"kind": PaymentSource.Kind.CREDIT, "name": "銀行未設定カード", "linked_source": "", "is_active": "on"})
+    assert card_without_bank.is_valid()
+    assert not PaymentSourceForm({"kind": PaymentSource.Kind.CREDIT, "name": "誤カード", "linked_source": cash.id, "is_active": "on"}).is_valid()
+    assert not PaymentSourceForm({"kind": PaymentSource.Kind.BANK, "name": "誤銀行", "linked_source": cash.id, "is_active": "on"}).is_valid()
+    self_link = PaymentSourceForm({"kind": PaymentSource.Kind.CODE, "name": code.name, "linked_source": code.id, "is_active": "on"}, instance=code)
+    assert not self_link.is_valid() and "linked_source" in self_link.errors
+    # Simulate an externally imported invalid cycle; the normal form must not
+    # allow it to be retained or extended.
+    PaymentSource.objects.filter(pk=card.pk).update(linked_source=code)
+    cycle = PaymentSourceForm({"kind": PaymentSource.Kind.CODE, "name": code.name, "linked_source": card.id, "is_active": "on"}, instance=code)
+    assert not cycle.is_valid() and "linked_source" in cycle.errors
+
+
+@pytest.mark.django_db
+def test_settlement_snapshots_and_final_settlement_pages(client, user):
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="最終銀行")
+    cash = PaymentSource.objects.create(kind=PaymentSource.Kind.CASH, name="現金引き落とし")
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="カード", linked_source=bank)
+    code = PaymentSource.objects.create(kind=PaymentSource.Kind.CODE, name="コード", linked_source=card)
+    flea = PaymentSource.objects.create(kind=PaymentSource.Kind.FLEA_MARKET, name="フリマ")
+    client.force_login(user)
+    common = {
+        "spent_on": "2026-08-18", "shop_name": "二段階店", "payment_source": code.id, "note": "=SUM(A1:A2)",
+        "lines-TOTAL_FORMS": "1", "lines-INITIAL_FORMS": "0", "lines-MIN_NUM_FORMS": "0", "lines-MAX_NUM_FORMS": "50",
+        "lines-0-description": "食費", "lines-0-amount_yen": "900",
+    }
+    assert client.post(reverse("household"), common).status_code == 302
+    entry = HouseholdEntry.objects.get(shop_name="二段階店")
+    assert (entry.linked_source, entry.settlement_source) == (card, bank)
+    assert (entry.linked_source_name_snapshot, entry.settlement_source_name_snapshot) == ("カード", "最終銀行")
+    assert entry.settlement_path_snapshot == "コード → カード → 最終銀行"
+    code.linked_source = cash; code.save(update_fields=["linked_source", "updated_at"])
+    form = HouseholdEntryForm({
+        "spent_on": "2026-08-18", "shop_name": "二段階店", "description": "食費", "amount_yen": "900",
+        "payment_source": code.id, "entry_type": HouseholdEntry.EntryType.EXPENSE, "note": "更新",
+    }, instance=entry)
+    assert form.is_valid(); form.save(); entry.refresh_from_db()
+    assert entry.settlement_source == bank and entry.settlement_path_snapshot == "コード → カード → 最終銀行"
+    flea_entry = HouseholdEntry.objects.create(
+        spent_on="2026-08-18", shop_name="除外", description="販売", amount_yen=500,
+        entry_type=HouseholdEntry.EntryType.FLEA_PROFIT, payment_source=flea,
+        payment_source_name_snapshot=flea.name, payment_source_kind_snapshot=flea.kind,
+    )
+    listing = client.get(reverse("settlements") + "?month=2026-08")
+    assert listing.status_code == 200
+    html = listing.content.decode()
+    detail_url = reverse("settlement_detail", args=[bank.id]) + "?month=2026-08"
+    assert detail_url in html and "最終的な引き落とし元ごとに一度だけ" in html
+    detail = client.get(detail_url)
+    assert detail.context["total"] == 900
+    detail_html = detail.content.decode()
+    assert "コード → カード → 最終銀行" in detail_html
+    assert reverse("source_detail", args=[code.id]) + "?month=2026-08" in detail_html
+    assert "data-selectable-table" in detail_html and "data-print-range" in detail_html
+    csv_text = (Path(settings.RUNTIME_DIR) / "csv" / "household" / "2026" / "2026-08.csv").read_text(encoding="utf-8-sig")
+    assert "最終引き落とし元ID" in csv_text and "コード → カード → 最終銀行" in csv_text and "'=SUM(A1:A2)" in csv_text
+
+
+@pytest.mark.django_db
+def test_unlinked_credit_and_code_to_unlinked_credit_are_unsettled(client, user):
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="未設定カード")
+    code = PaymentSource.objects.create(kind=PaymentSource.Kind.CODE, name="未設定コード", linked_source=card)
+    client.force_login(user)
+    base = {
+        "spent_on": "2026-08-22", "shop_name": "未設定店", "note": "",
+        "lines-TOTAL_FORMS": "1", "lines-INITIAL_FORMS": "0", "lines-MIN_NUM_FORMS": "0", "lines-MAX_NUM_FORMS": "50",
+        "lines-0-description": "食費", "lines-0-amount_yen": "100",
+    }
+    assert client.post(reverse("household"), {**base, "payment_source": card.id}).status_code == 302
+    assert client.post(reverse("household"), {**base, "shop_name": "コード未設定店", "payment_source": code.id}).status_code == 302
+    direct_card = HouseholdEntry.objects.get(shop_name="未設定店")
+    through_code = HouseholdEntry.objects.get(shop_name="コード未設定店")
+    assert direct_card.settlement_source is None and direct_card.settlement_path_snapshot == "未設定カード → 未設定"
+    assert through_code.linked_source == card and through_code.settlement_source is None
+    assert through_code.settlement_path_snapshot == "未設定コード → 未設定カード → 未設定"
+    listing = client.get(reverse("settlements") + "?month=2026-08")
+    assert listing.context["unset_count"] == 2 and "コード決済またはクレジットカード" in listing.content.decode()
+
+
+def test_credit_correction_migration_only_targets_direct_credit_rows():
+    migration = Path("ledger/migrations/0007_correct_unlinked_credit_settlements.py").read_text()
+    assert 'payment_source__kind="credit_card"' in migration
+    assert "linked_source__isnull=True" in migration
+    assert 'settlement_source_id=models.F("payment_source_id")' in migration
+
+
+@pytest.mark.django_db
+def test_payment_link_settings_supports_credit_card_and_preserves_inactive_existing_link(client, user):
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="設定銀行")
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="設定カード", linked_source=bank)
+    code = PaymentSource.objects.create(kind=PaymentSource.Kind.CODE, name="設定コード", linked_source=card)
+    client.force_login(user)
+    page = client.get(reverse("payment_link_settings"))
+    assert "設定対象" in page.content.decode() and "設定カード" in page.content.decode()
+    response = client.post(reverse("payment_link_settings"), {"code_payment": card.id, "linked_source": bank.id})
+    assert response.status_code == 302
+    bank.is_active = False; bank.save(update_fields=["is_active"])
+    form = PaymentLinkForm({"code_payment": card.id, "linked_source": bank.id})
+    assert form.is_valid()
 
 
 @pytest.mark.django_db

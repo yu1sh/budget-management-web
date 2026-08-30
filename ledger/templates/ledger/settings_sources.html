@@ -6,13 +6,13 @@
     <p>クレジットカード、銀行、コード決済、ポイントなどを登録します。利用停止しても過去明細は残ります。</p>
   </div>
   <div class="actions">
-    <a class="button secondary" href="{% url 'payment_link_settings' %}">コード決済の引き落とし元を設定</a>
+    <a class="button secondary" href="{% url 'payment_link_settings' %}">引き落とし元を設定</a>
     <a class="button secondary" href="{% url 'people_settings' %}">医療費の対象者管理</a>
   </div>
 </div>
 <section class="panel">
   <h2>{% if editing %}{{ editing.name }}を編集{% else %}支払い元を追加{% endif %}</h2>
-  <form method="post" class="entry-form" data-payment-source-form>
+  <form method="post" class="entry-form" data-payment-source-form data-source-kinds="{% for source in sources %}{{ source.id }}:{{ source.kind }},{% endfor %}">
     {% csrf_token %}
     {% for field in form %}
       {% if field.name == 'is_active' %}

@@ -28,6 +28,32 @@ class PaymentSource(models.Model):
         return self.name
 
 
+def resolve_settlement(source):
+    """Return immediate source, final settlement source, and display path.
+
+    A code payment without a configured source deliberately remains unresolved;
+    it must not be silently attributed to the code payment itself.
+    """
+    if source.kind in (PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT) and not source.linked_source_id:
+        return None, None, f"{source.name} → 未設定"
+    immediate = source.linked_source
+    current = source
+    names = [source.name]
+    seen = {source.pk}
+    while current.linked_source_id:
+        current = current.linked_source
+        if current.pk in seen:
+            return immediate, None, " → ".join(names + ["設定エラー"])
+        seen.add(current.pk)
+        names.append(current.name)
+        # A code payment may be directly charged to a card. Without that
+        # card's bank setting, the card is known but the final settlement is
+        # deliberately unresolved.
+        if current.kind == PaymentSource.Kind.CREDIT and not current.linked_source_id:
+            return immediate, None, " → ".join(names + ["未設定"])
+    return immediate, current, " → ".join(names)
+
+
 class HouseholdEntry(models.Model):
     class EntryType(models.TextChoices):
         EXPENSE = "expense", "通常支出"
@@ -44,6 +70,9 @@ class HouseholdEntry(models.Model):
     payment_source_kind_snapshot = models.CharField(max_length=20)
     linked_source = models.ForeignKey(PaymentSource, null=True, blank=True, on_delete=models.PROTECT, related_name="funded_entries")
     linked_source_name_snapshot = models.CharField(max_length=100, blank=True)
+    settlement_source = models.ForeignKey(PaymentSource, null=True, blank=True, on_delete=models.PROTECT, related_name="settled_entries")
+    settlement_source_name_snapshot = models.CharField(max_length=100, blank=True)
+    settlement_path_snapshot = models.CharField(max_length=320, blank=True)
     note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

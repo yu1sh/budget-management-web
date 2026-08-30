@@ -1,28 +1,28 @@
 {% extends 'ledger/base.html' %}
-{% block title %}コード決済の引き落とし元設定{% endblock %}
+{% block title %}引き落とし元設定{% endblock %}
 {% block content %}
 <div class="page-heading">
   <div>
-    <h1>コード決済の引き落とし元設定</h1>
-    <p>コード決済ごとに、実際に請求されるクレジットカードまたは銀行を設定します。</p>
+    <h1>引き落とし元設定</h1>
+    <p>コード決済はカード・銀行・現金、クレジットカードは銀行へ設定できます。カードの設定は任意ですが、この画面で設定する場合は選択が必要です。ここは設定画面です。集計は「引き落とし元別」で確認します。</p>
   </div>
   <a class="button secondary" href="{% url 'source_settings' %}">支払い元の管理へ戻る</a>
 </div>
 
 {% if not available_sources %}
   <div class="message error">
-    <p>引き落とし元にできる利用中のクレジットカードまたは銀行がありません。</p>
-    <p><a href="{% url 'source_settings' %}">先に支払い元の管理でカードまたは銀行を追加してください。</a></p>
+    <p>引き落とし元にできる利用中のカード・銀行・現金がありません。</p>
+    <p><a href="{% url 'source_settings' %}">先に支払い元の管理で追加してください。</a></p>
   </div>
-{% elif not code_payments %}
+{% elif not linkable_payments %}
   <div class="message">
-    <p>コード決済がまだ登録されていません。</p>
-    <p><a href="{% url 'source_settings' %}">支払い元の管理でコード決済を追加してください。</a></p>
+    <p>設定対象のコード決済またはクレジットカードがまだ登録されていません。</p>
+    <p><a href="{% url 'source_settings' %}">支払い元の管理で追加してください。</a></p>
   </div>
 {% else %}
   <section class="panel">
     <h2>引き落とし元を変更</h2>
-    <form method="post" class="entry-form medical-form">
+    <form method="post" class="entry-form medical-form" data-payment-link-form data-source-kinds="{% for source in all_sources %}{{ source.id }}:{{ source.kind }},{% endfor %}">
       {% csrf_token %}
       {% for field in form %}
         <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
@@ -35,12 +35,12 @@
 
 <div class="table-wrap">
   <table>
-    <thead><tr><th>コード決済</th><th>現在の引き落とし元</th><th>状態</th></tr></thead>
+    <thead><tr><th>設定対象</th><th>現在の引き落とし元</th><th>状態</th></tr></thead>
     <tbody>
-      {% for source in code_payments %}
+      {% for source in linkable_payments %}
         <tr><td>{{ source.name }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% else %}<span class="danger">未設定</span>{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td></tr>
       {% empty %}
-        <tr><td colspan="3" class="empty">コード決済がありません。</td></tr>
+        <tr><td colspan="3" class="empty">設定対象がありません。</td></tr>
       {% endfor %}
     </tbody>
   </table>

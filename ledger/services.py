@@ -45,8 +45,10 @@ def export_household_month(year, month):
     rows = [[e.id, e.spent_on.isoformat(), csv_safe(e.shop_name), csv_safe(e.description), e.amount_yen,
              e.payment_source_id, e.payment_source_kind_snapshot, csv_safe(e.payment_source_name_snapshot),
              csv_safe(e.linked_source_name_snapshot), csv_safe(e.note), e.created_at.isoformat(), e.updated_at.isoformat(),
-             payment_source_kind_label(e.payment_source_kind_snapshot), e.get_entry_type_display()] for e in entries]
-    _replace_csv(household_csv_path(year, month), ["id", "日付", "店名", "内訳", "金額", "支払い元ID", "支払い元種類", "支払い元名", "コード決済引き落とし元", "備考", "作成日時", "更新日時", "支払い元種類表示", "種別"], rows)
+             payment_source_kind_label(e.payment_source_kind_snapshot), e.get_entry_type_display(),
+             e.linked_source_id or "", csv_safe(e.linked_source_name_snapshot),
+             e.settlement_source_id or "", csv_safe(e.settlement_source_name_snapshot), csv_safe(e.settlement_path_snapshot)] for e in entries]
+    _replace_csv(household_csv_path(year, month), ["id", "日付", "店名", "内訳", "金額", "支払い元ID", "支払い元種類", "支払い元名", "コード決済引き落とし元", "備考", "作成日時", "更新日時", "支払い元種類表示", "種別", "直接引き落とし元ID", "直接引き落とし元名", "最終引き落とし元ID", "最終引き落とし元名", "引き落とし経路"], rows)
 
 
 def recalculate_medical(person_id, year):
