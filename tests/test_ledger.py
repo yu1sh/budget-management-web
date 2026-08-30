@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.urls import reverse
-from ledger.forms import HouseholdEntryForm, MedicalBatchForm, MedicalEntryForm, PaymentLinkForm, PaymentSourceForm, PersonForm
+from ledger.forms import BankForm, HouseholdEntryForm, MedicalBatchForm, MedicalEntryForm, PaymentLinkForm, PaymentSourceForm, PersonForm
 from ledger.models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person
 from ledger.services import recalculate_medical
 from ledger.views import _month, _year
@@ -588,6 +588,122 @@ def test_payment_link_settings_supports_credit_card_and_preserves_inactive_exist
     bank.is_active = False; bank.save(update_fields=["is_active"])
     form = PaymentLinkForm({"code_payment": card.id, "linked_source": bank.id})
     assert form.is_valid()
+
+
+@pytest.mark.django_db
+def test_bank_management_only_manages_bank_payment_sources_and_forces_kind(client, user):
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="既存銀行", note="既存メモ")
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="カード")
+    assert client.get(reverse("bank_settings")).status_code == 302
+    client.force_login(user)
+    page = client.get(reverse("bank_settings"))
+    html = page.content.decode()
+    assert page.status_code == 200 and "既存銀行" in html and "カード" not in html
+    created = client.post(reverse("bank_settings"), {"name": "追加銀行", "note": "メモ", "is_active": "on", "kind": PaymentSource.Kind.CASH})
+    assert created.status_code == 302
+    added = PaymentSource.objects.get(name="追加銀行")
+    assert added.kind == PaymentSource.Kind.BANK
+    edited = client.post(reverse("bank_edit", args=[added.id]), {"name": "名称変更銀行", "note": "更新", "is_active": "", "kind": PaymentSource.Kind.CASH})
+    assert edited.status_code == 302
+    added.refresh_from_db()
+    assert (added.kind, added.name, added.is_active) == (PaymentSource.Kind.BANK, "名称変更銀行", False)
+    assert client.get(reverse("bank_edit", args=[card.id])).status_code == 404
+    assert not BankForm({"name": "既存銀行", "note": "", "is_active": "on"}).is_valid()
+    assert reverse("settlement_detail", args=[bank.id]) in html and reverse("source_detail", args=[bank.id]) in html
+
+
+@pytest.mark.django_db
+def test_source_settings_renders_and_handles_all_linking_kinds(client, user):
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="設定用銀行")
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="設定用カード")
+    cash = PaymentSource.objects.create(kind=PaymentSource.Kind.CASH, name="設定用現金")
+    client.force_login(user)
+    page = client.get(reverse("source_settings"))
+    html = page.content.decode()
+    assert page.status_code == 200
+    assert html.count('id="id_kind"') == html.count('id="id_linked_source"') == 1
+    assert 'data-payment-source-form' in html
+    assert 'data-linked-source-field hidden aria-hidden="true"' in html
+    assert reverse("bank_settings") in html
+
+    code = client.post(reverse("source_settings"), {
+        "kind": PaymentSource.Kind.CODE, "name": "設定用コード", "linked_source": cash.id,
+        "note": "コードメモ", "is_active": "on",
+    })
+    assert code.status_code == 302
+    created_code = PaymentSource.objects.get(name="設定用コード")
+    assert created_code.linked_source == cash
+    credit = client.post(reverse("source_settings"), {
+        "kind": PaymentSource.Kind.CREDIT, "name": "設定用カード2", "linked_source": bank.id,
+        "note": "カードメモ", "is_active": "on",
+    })
+    assert credit.status_code == 302
+    created_credit = PaymentSource.objects.get(name="設定用カード2")
+    assert created_credit.linked_source == bank
+    optional_credit = client.post(reverse("source_settings"), {
+        "kind": PaymentSource.Kind.CREDIT, "name": "設定用未設定カード", "linked_source": "",
+        "note": "", "is_active": "on",
+    })
+    assert optional_credit.status_code == 302
+    invalid_credit = client.post(reverse("source_settings"), {
+        "kind": PaymentSource.Kind.CREDIT, "name": "不正カード", "linked_source": cash.id,
+        "note": "", "is_active": "on",
+    })
+    assert invalid_credit.status_code == 200
+    assert "クレジットカードの引き落とし元には銀行を選んでください。" in invalid_credit.content.decode()
+    plain = client.post(reverse("source_settings"), {
+        "kind": PaymentSource.Kind.POINT, "name": "設定用ポイント", "linked_source": bank.id,
+        "note": "", "is_active": "on",
+    })
+    assert plain.status_code == 200
+    plain_html = plain.content.decode()
+    assert "この種類には引き落とし元を設定できません。" in plain_html
+    assert 'data-linked-source-field hidden aria-hidden="true"' in plain_html
+
+    edited = client.post(reverse("source_edit", args=[created_code.id]), {
+        "kind": PaymentSource.Kind.CODE, "name": "編集コード", "linked_source": card.id,
+        "note": "変更", "is_active": "",
+    })
+    assert edited.status_code == 302
+    created_code.refresh_from_db()
+    assert (created_code.name, created_code.linked_source, created_code.is_active) == ("編集コード", card, False)
+    edit_page = client.get(reverse("source_edit", args=[created_code.id]))
+    assert edit_page.status_code == 200
+    assert 'data-linked-source-field aria-hidden="false"' in edit_page.content.decode()
+
+
+@pytest.mark.django_db
+def test_authenticated_navigation_includes_bank_management(client, user):
+    client.force_login(user)
+    html = client.get(reverse("source_settings")).content.decode()
+    assert f'href="{reverse("bank_settings")}"' in html and ">銀行管理<" in html
+    assert "site-header" in html and "flex-wrap:wrap" in Path("ledger/static/ledger/site.css").read_text()
+
+
+@pytest.mark.django_db
+def test_payment_link_page_exposes_current_link_for_js_and_preserves_invalid_post(client, user):
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="自動入力銀行")
+    inactive_bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="停止銀行", is_active=False)
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="自動入力カード", linked_source=bank)
+    code = PaymentSource.objects.create(kind=PaymentSource.Kind.CODE, name="自動入力コード", linked_source=card)
+    cash = PaymentSource.objects.create(kind=PaymentSource.Kind.CASH, name="不正現金")
+    client.force_login(user)
+    page = client.get(reverse("payment_link_settings"))
+    html = page.content.decode()
+    assert f'data-current-links="{card.id}:{bank.id},' in html
+    assert f'{code.id}:{card.id},' in html
+    script = Path("ledger/static/ledger/site.js").read_text()
+    assert "currentLinks" in script and "applyCurrentLink" in script and "data-preserve-selection" in html
+    invalid = client.post(reverse("payment_link_settings"), {"code_payment": card.id, "linked_source": cash.id})
+    invalid_html = invalid.content.decode()
+    assert invalid.status_code == 200
+    assert 'data-preserve-selection="true"' in invalid_html
+    assert f'<option value="{cash.id}" selected>' in invalid_html
+    inactive_bank.is_active = True; inactive_bank.save(update_fields=["is_active"])
+    assert client.post(reverse("payment_link_settings"), {"code_payment": card.id, "linked_source": inactive_bank.id}).status_code == 302
+    inactive_bank.is_active = False; inactive_bank.save(update_fields=["is_active"])
+    page = client.get(reverse("payment_link_settings"))
+    assert f"停止銀行（利用停止中）" in page.content.decode()
 
 
 @pytest.mark.django_db

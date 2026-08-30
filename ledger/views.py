@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 from .forms import (
+    BankForm,
     HouseholdEntryForm,
     HouseholdBatchForm,
     HouseholdBreakdownFormSet,
@@ -296,7 +297,28 @@ def source_settings(request, pk=None):
             return redirect("source_settings")
     else:
         form = PaymentSourceForm(instance=instance)
-    return render(request, "ledger/settings_sources.html", {"form": form, "sources": PaymentSource.objects.all(), "editing": instance})
+    selected_kind = form["kind"].value() or ""
+    return render(request, "ledger/settings_sources.html", {
+        "form": form, "sources": PaymentSource.objects.all(), "editing": instance,
+        "show_linked_source": selected_kind in (PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT),
+        "linked_source_error": "linked_source" in form.errors,
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def bank_settings(request, pk=None):
+    banks = PaymentSource.objects.filter(kind=PaymentSource.Kind.BANK).order_by("name")
+    instance = get_object_or_404(banks, pk=pk) if pk else None
+    if request.method == "POST":
+        form = BankForm(request.POST, instance=instance)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "銀行を保存しました。")
+            return redirect("bank_settings")
+    else:
+        form = BankForm(instance=instance)
+    return render(request, "ledger/settings_banks.html", {"form": form, "banks": banks, "editing": instance})
 
 
 @login_required
@@ -329,6 +351,7 @@ def payment_link_settings(request):
             "form": form,
             "linkable_payments": linkable_payments,
             "all_sources": PaymentSource.objects.all(),
+            "current_links": {source.id: source.linked_source_id for source in linkable_payments},
             "available_sources": available_sources,
         },
     )

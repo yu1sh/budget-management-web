@@ -12,6 +12,7 @@
     const updateLinkedSourceVisibility = () => {
       const allowed = allowedKinds(kind.value);
       linkedSource.hidden = !allowed.length;
+      linkedSource.setAttribute("aria-hidden", String(!allowed.length));
       const select = linkedSource.querySelector("select");
       if (select) {
         select.disabled = !allowed.length;
@@ -34,18 +35,25 @@
     const target = form.querySelector("#id_code_payment");
     const linked = form.querySelector("#id_linked_source");
     const sourceKinds = Object.fromEntries((form.dataset.sourceKinds || "").split(",").filter(Boolean).map((item) => item.split(":")));
+    const sourceActive = Object.fromEntries((form.dataset.sourceActive || "").split(",").filter(Boolean).map((item) => item.split(":")));
+    const currentLinks = Object.fromEntries((form.dataset.currentLinks || "").split(",").filter(Boolean).map((item) => item.split(":")));
+    const preserveSelection = form.dataset.preserveSelection === "true";
     const allowedKinds = (sourceKind) => sourceKind === "code_payment"
       ? ["credit_card", "bank", "cash"] : sourceKind === "credit_card" ? ["bank"] : [];
-    const updateOptions = () => {
+    const updateOptions = (applyCurrentLink = false) => {
       if (!target || !linked) return;
       const allowed = allowedKinds(sourceKinds[target.value]);
+      const currentLink = currentLinks[target.value] || "";
       [...linked.options].forEach((option) => {
         if (!option.value) return;
-        option.disabled = !allowed.includes(sourceKinds[option.value]);
+        option.disabled = !allowed.includes(sourceKinds[option.value])
+          || (sourceActive[option.value] !== "1" && option.value !== currentLink);
       });
-      if (linked.value && !allowed.includes(sourceKinds[linked.value])) linked.value = "";
+      if (applyCurrentLink || (!preserveSelection && target.value && !linked.value)) {
+        linked.value = currentLink;
+      }
     };
-    target?.addEventListener("change", updateOptions);
+    target?.addEventListener("change", () => updateOptions(true));
     updateOptions();
   });
 

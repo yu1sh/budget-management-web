@@ -12,6 +12,7 @@ urlpatterns = [
     path("sources/<int:source_id>/flea-market/<int:pk>/edit/", views.flea_market_edit, name="flea_market_edit"),
     path("sources/<int:source_id>/flea-market/<int:pk>/delete/", views.flea_market_delete, name="flea_market_delete"),
     path("settings/sources/", views.source_settings, name="source_settings"), path("settings/sources/<int:pk>/", views.source_settings, name="source_edit"),
+    path("settings/banks/", views.bank_settings, name="bank_settings"), path("settings/banks/<int:pk>/", views.bank_settings, name="bank_edit"),
     path("settings/payment-links/", views.payment_link_settings, name="payment_link_settings"),
     path("medical/", views.medical, name="medical"), path("medical/export/", views.download_medical_csv, name="medical_export"),
     path("medical/hospitals/", views.medical_hospitals, name="medical_hospitals"),

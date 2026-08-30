@@ -6,7 +6,7 @@
     <h1>引き落とし元設定</h1>
     <p>コード決済はカード・銀行・現金、クレジットカードは銀行へ設定できます。カードの設定は任意ですが、この画面で設定する場合は選択が必要です。ここは設定画面です。集計は「引き落とし元別」で確認します。</p>
   </div>
-  <a class="button secondary" href="{% url 'source_settings' %}">支払い元の管理へ戻る</a>
+  <div class="actions"><a class="button secondary" href="{% url 'bank_settings' %}">銀行を管理</a><a class="button secondary" href="{% url 'source_settings' %}">支払い元の管理へ戻る</a></div>
 </div>
 
 {% if not available_sources %}
@@ -22,7 +22,7 @@
 {% else %}
   <section class="panel">
     <h2>引き落とし元を変更</h2>
-    <form method="post" class="entry-form medical-form" data-payment-link-form data-source-kinds="{% for source in all_sources %}{{ source.id }}:{{ source.kind }},{% endfor %}">
+    <form method="post" class="entry-form medical-form" data-payment-link-form data-source-kinds="{% for source in all_sources %}{{ source.id }}:{{ source.kind }},{% endfor %}" data-source-active="{% for source in all_sources %}{{ source.id }}:{% if source.is_active %}1{% else %}0{% endif %},{% endfor %}" data-current-links="{% for source in linkable_payments %}{{ source.id }}:{% if source.linked_source_id %}{{ source.linked_source_id }}{% endif %},{% endfor %}" data-preserve-selection="{% if form.is_bound %}true{% else %}false{% endif %}">
       {% csrf_token %}
       {% for field in form %}
         <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
@@ -38,7 +38,7 @@
     <thead><tr><th>設定対象</th><th>現在の引き落とし元</th><th>状態</th></tr></thead>
     <tbody>
       {% for source in linkable_payments %}
-        <tr><td>{{ source.name }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% else %}<span class="danger">未設定</span>{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td></tr>
+        <tr><td>{{ source.name }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% if not source.linked_source.is_active %}（利用停止中）{% endif %}{% else %}<span class="danger">未設定</span>{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td></tr>
       {% empty %}
         <tr><td colspan="3" class="empty">設定対象がありません。</td></tr>
       {% endfor %}

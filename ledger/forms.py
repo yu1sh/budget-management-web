@@ -27,6 +27,16 @@ def has_link_cycle(source, linked):
     return False
 
 
+def payment_source_choice_label(source):
+    suffix = "（利用停止中）" if not source.is_active else ""
+    return f"{source.name}{suffix}"
+
+
+class PaymentSourceChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, source):
+        return payment_source_choice_label(source)
+
+
 class DateInput(forms.DateInput):
     input_type = "date"
 
@@ -211,6 +221,7 @@ class PaymentSourceForm(forms.ModelForm):
                 | models.Q(pk=self.instance.linked_source_id)
             )
         self.fields["linked_source"].queryset = linked_sources.order_by("kind", "name")
+        self.fields["linked_source"].label_from_instance = payment_source_choice_label
 
     def clean(self):
         cleaned = super().clean()
@@ -238,11 +249,11 @@ class PaymentSourceForm(forms.ModelForm):
 
 
 class PaymentLinkForm(forms.Form):
-    code_payment = forms.ModelChoiceField(
+    code_payment = PaymentSourceChoiceField(
         label="設定対象",
         queryset=PaymentSource.objects.none(),
     )
-    linked_source = forms.ModelChoiceField(
+    linked_source = PaymentSourceChoiceField(
         label="引き落とし元",
         queryset=PaymentSource.objects.none(),
         help_text="コード決済はカード・銀行・現金、カードは銀行を選択してください。",
@@ -250,10 +261,13 @@ class PaymentLinkForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["code_payment"].queryset = PaymentSource.objects.filter(
+        linkable = PaymentSource.objects.filter(
             kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT)
-        ).order_by("name")
+        )
+        self.fields["code_payment"].queryset = linkable.order_by("name")
+        existing_link_ids = linkable.exclude(linked_source__isnull=True).values_list("linked_source_id", flat=True)
         self.fields["linked_source"].queryset = PaymentSource.objects.filter(
+            (models.Q(is_active=True) | models.Q(pk__in=existing_link_ids)),
             kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
         ).order_by("kind", "name")
 
@@ -269,6 +283,34 @@ class PaymentLinkForm(forms.Form):
         elif source.pk == linked.pk or has_link_cycle(source, linked):
             self.add_error("linked_source", "自分自身または循環する引き落とし元は設定できません。")
         return cleaned
+
+
+class BankForm(forms.ModelForm):
+    """Manage bank sources without exposing a mutable kind field."""
+    class Meta:
+        model = PaymentSource
+        fields = ["name", "note", "is_active"]
+        widgets = {
+            "note": forms.Textarea(attrs={"rows": 2}),
+            "is_active": forms.CheckboxInput(attrs={"class": "checkbox-input"}),
+        }
+        labels = {"name": "銀行名", "note": "メモ", "is_active": "利用中"}
+
+    def clean_name(self):
+        name = self.cleaned_data["name"]
+        duplicate = PaymentSource.objects.filter(kind=PaymentSource.Kind.BANK, name=name)
+        if self.instance.pk:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise ValidationError("同じ名前の銀行はすでに登録されています。")
+        return name
+
+    def save(self, commit=True):
+        bank = super().save(commit=False)
+        bank.kind = PaymentSource.Kind.BANK
+        if commit:
+            bank.save()
+        return bank
 
 
 class PersonForm(forms.ModelForm):

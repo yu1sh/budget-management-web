@@ -7,6 +7,7 @@
   </div>
   <div class="actions">
     <a class="button secondary" href="{% url 'payment_link_settings' %}">引き落とし元を設定</a>
+    <a class="button secondary" href="{% url 'bank_settings' %}">銀行を管理</a>
     <a class="button secondary" href="{% url 'people_settings' %}">医療費の対象者管理</a>
   </div>
 </div>
@@ -22,11 +23,12 @@
           {{ field.errors }}
         </div>
       {% elif field.name == 'linked_source' %}
-        <label data-linked-source-field>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
+        <label data-linked-source-field{% if not show_linked_source %} hidden aria-hidden="true"{% else %} aria-hidden="false"{% endif %}>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
       {% else %}
         <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
       {% endif %}
     {% endfor %}
+    {% if linked_source_error and not show_linked_source %}<div class="form-notice form-error" role="alert">引き落とし元の指定を確認してください。{{ form.linked_source.errors }}</div>{% endif %}
     <button>保存</button>
     {% if editing %}<a class="button secondary" href="{% url 'source_settings' %}">キャンセル</a>{% endif %}
   </form>
