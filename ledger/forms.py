@@ -28,7 +28,7 @@ def has_link_cycle(source, linked):
 
 
 def payment_source_choice_label(source):
-    suffix = "（利用停止中）" if not source.is_active else ""
+    suffix = "（削除済み）" if source.is_deleted else "（利用停止中）" if not source.is_active else ""
     return f"{source.name}{suffix}"
 
 
@@ -59,9 +59,11 @@ class HouseholdEntryForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self._original_payment_source_id = kwargs.get("instance").payment_source_id if kwargs.get("instance") else None
         super().__init__(*args, **kwargs)
-        sources = PaymentSource.objects.filter(is_active=True)
+        sources = PaymentSource.objects.filter(is_active=True, deleted_at__isnull=True)
         if self.instance.pk and self.instance.payment_source_id:
-            sources = PaymentSource.objects.filter(models.Q(is_active=True) | models.Q(pk=self.instance.payment_source_id))
+            sources = PaymentSource.objects.filter(
+                models.Q(is_active=True, deleted_at__isnull=True) | models.Q(pk=self.instance.payment_source_id)
+            )
         self.fields["payment_source"].queryset = sources
         # The field is required only when a flea-market source is selected.
         # Keeping it optional here lets ordinary existing entries be edited
@@ -113,7 +115,9 @@ class HouseholdBatchForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["payment_source"].queryset = PaymentSource.objects.filter(is_active=True).order_by("kind", "name")
+        self.fields["payment_source"].queryset = PaymentSource.objects.filter(
+            is_active=True, deleted_at__isnull=True,
+        ).order_by("kind", "name")
         self.fields["entry_type"] = forms.ChoiceField(
             label="フリマ種別",
             required=False,
@@ -193,24 +197,52 @@ HouseholdBreakdownFormSet = formset_factory(
 
 
 class PaymentSourceForm(forms.ModelForm):
+    DAY_CHOICES = [("", "未設定")] + [(day, f"{day}日") for day in range(1, 31)] + [(31, "月末")]
+    OFFSET_CHOICES = [("", "未設定")] + list(PaymentSource.PAYMENT_MONTH_OFFSET_CHOICES)
+    closing_day = forms.TypedChoiceField(
+        label="締め日", choices=DAY_CHOICES, coerce=int, required=False,
+        empty_value=None,
+    )
+    payment_day = forms.TypedChoiceField(
+        label="支払い日", choices=DAY_CHOICES, coerce=int, required=False,
+        empty_value=None,
+    )
+    payment_month_offset = forms.TypedChoiceField(
+        label="支払い月", choices=OFFSET_CHOICES, coerce=int, required=False,
+        empty_value=None,
+    )
+
     class Meta:
         model = PaymentSource
-        fields = ["kind", "name", "linked_source", "note", "is_active"]
+        fields = [
+            "kind", "name", "main_color", "linked_source", "closing_day", "payment_day",
+            "payment_month_offset", "note", "is_active",
+        ]
         widgets = {
             "note": forms.Textarea(attrs={"rows": 2}),
             "is_active": forms.CheckboxInput(attrs={"class": "checkbox-input"}),
+            "main_color": forms.TextInput(attrs={"type": "color", "class": "color-input"}),
         }
-        labels = {"kind": "種類", "name": "名称", "linked_source": "引き落とし元", "note": "メモ", "is_active": "利用中"}
+        labels = {
+            "kind": "種類", "name": "名称", "main_color": "イメージカラー",
+            "linked_source": "引き落とし元", "note": "メモ", "is_active": "利用中",
+        }
         help_texts = {
             "linked_source": "コード決済は必須でカード・銀行・現金、クレジットカードは任意で銀行を設定できます。",
+            "main_color": "#RRGGBB形式。支払い元別のカードの色に使います。",
+            "payment_month_offset": "支払月から何か月前の締め期間かを指定します。",
             "is_active": "オフにすると、新しい家計簿入力の選択肢から外れます。過去の明細は残ります。",
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Existing integrations and older forms do not send a color; use the
+        # model default in that case while still rejecting malformed values.
+        self.fields["main_color"].required = False
         linked_sources = PaymentSource.objects.filter(
             is_active=True,
             kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
+            deleted_at__isnull=True,
         )
         if self.instance.pk and self.instance.linked_source_id:
             linked_sources = PaymentSource.objects.filter(
@@ -223,9 +255,35 @@ class PaymentSourceForm(forms.ModelForm):
         self.fields["linked_source"].queryset = linked_sources.order_by("kind", "name")
         self.fields["linked_source"].label_from_instance = payment_source_choice_label
 
+    def clean_main_color(self):
+        value = self.cleaned_data.get("main_color")
+        # Keep validation strict and avoid silently turning malformed input
+        # into CSS.  The model validator is also present for non-form writes.
+        import re
+        if not value:
+            return self.instance.main_color if self.instance and self.instance.pk else PaymentSource.DEFAULT_MAIN_COLOR
+        if not value or not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            raise ValidationError("カラーは#RRGGBB形式で入力してください。")
+        return value
+
     def clean(self):
         cleaned = super().clean()
         kind, linked = cleaned.get("kind"), cleaned.get("linked_source")
+        schedule_fields = ("closing_day", "payment_day", "payment_month_offset")
+        schedule_values = [cleaned.get(field) for field in schedule_fields]
+        if kind == PaymentSource.Kind.CREDIT:
+            # A card can remain unconfigured, but once one schedule field is
+            # entered the three values must be supplied together.
+            if any(value is not None for value in schedule_values) and not all(value is not None for value in schedule_values):
+                for field, value in zip(schedule_fields, schedule_values):
+                    if value is None:
+                        self.add_error(field, "締め日・支払い日・支払い月をすべて設定してください。")
+        elif any(value is not None for value in schedule_values):
+            # The fields are disabled in the UI for non-cards.  Rejecting
+            # values submitted by a custom client prevents an irrelevant
+            # schedule from being attached to a bank or another source.
+            for field in schedule_fields:
+                self.add_error(field, "クレジットカードにのみ設定できます。")
         allowed = allowed_linked_kinds(kind)
         if kind == PaymentSource.Kind.CODE:
             if not linked:
@@ -237,7 +295,7 @@ class PaymentSourceForm(forms.ModelForm):
         elif kind == PaymentSource.Kind.CREDIT:
             if linked and linked.kind not in allowed:
                 self.add_error("linked_source", "クレジットカードの引き落とし元には銀行を選んでください。")
-            elif linked and not linked.is_active and linked.pk != self.instance.linked_source_id:
+            elif linked and (not linked.is_active or linked.is_deleted) and linked.pk != self.instance.linked_source_id:
                 self.add_error("linked_source", "新しく設定する引き落とし元は利用中のものを選んでください。")
         elif linked:
             self.add_error("linked_source", "この種類には引き落とし元を設定できません。")
@@ -262,12 +320,12 @@ class PaymentLinkForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         linkable = PaymentSource.objects.filter(
-            kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT)
+            kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT), deleted_at__isnull=True,
         )
         self.fields["code_payment"].queryset = linkable.order_by("name")
         existing_link_ids = linkable.exclude(linked_source__isnull=True).values_list("linked_source_id", flat=True)
         self.fields["linked_source"].queryset = PaymentSource.objects.filter(
-            (models.Q(is_active=True) | models.Q(pk__in=existing_link_ids)),
+            (models.Q(is_active=True, deleted_at__isnull=True) | models.Q(pk__in=existing_link_ids)),
             kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
         ).order_by("kind", "name")
 
@@ -289,16 +347,35 @@ class BankForm(forms.ModelForm):
     """Manage bank sources without exposing a mutable kind field."""
     class Meta:
         model = PaymentSource
-        fields = ["name", "note", "is_active"]
+        fields = ["name", "main_color", "note", "is_active"]
         widgets = {
             "note": forms.Textarea(attrs={"rows": 2}),
             "is_active": forms.CheckboxInput(attrs={"class": "checkbox-input"}),
+            "main_color": forms.TextInput(attrs={"type": "color", "class": "color-input"}),
         }
-        labels = {"name": "銀行名", "note": "メモ", "is_active": "利用中"}
+        labels = {"name": "銀行名", "main_color": "イメージカラー", "note": "メモ", "is_active": "利用中"}
+        help_texts = {"main_color": "#RRGGBB形式。支払い元別のカードの色に使います。"}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["main_color"].required = False
+
+    def clean_main_color(self):
+        value = self.cleaned_data.get("main_color")
+        import re
+        if not value:
+            return self.instance.main_color if self.instance and self.instance.pk else PaymentSource.DEFAULT_MAIN_COLOR
+        if not value or not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            raise ValidationError("カラーは#RRGGBB形式で入力してください。")
+        return value
 
     def clean_name(self):
         name = self.cleaned_data["name"]
-        duplicate = PaymentSource.objects.filter(kind=PaymentSource.Kind.BANK, name=name)
+        duplicate = PaymentSource.objects.filter(
+            kind=PaymentSource.Kind.BANK,
+            name=name,
+            deleted_at__isnull=True,
+        )
         if self.instance.pk:
             duplicate = duplicate.exclude(pk=self.instance.pk)
         if duplicate.exists():

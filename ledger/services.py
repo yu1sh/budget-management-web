@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource
 
 
@@ -49,6 +49,57 @@ def export_household_month(year, month):
              e.linked_source_id or "", csv_safe(e.linked_source_name_snapshot),
              e.settlement_source_id or "", csv_safe(e.settlement_source_name_snapshot), csv_safe(e.settlement_path_snapshot)] for e in entries]
     _replace_csv(household_csv_path(year, month), ["id", "日付", "店名", "内訳", "金額", "支払い元ID", "支払い元種類", "支払い元名", "コード決済引き落とし元", "備考", "作成日時", "更新日時", "支払い元種類表示", "種別", "直接引き落とし元ID", "直接引き落とし元名", "最終引き落とし元ID", "最終引き落とし元名", "引き落とし経路"], rows)
+
+
+def credit_card_statement_entries(card, period_start, period_end):
+    """Return ordinary expenses charged directly or through a card-linked code.
+
+    A direct card row and a code-payment row are disjoint in normal data.  The
+    ``distinct`` also makes imported/legacy rows safe if both relationships
+    happen to point at the card.
+    """
+    return HouseholdEntry.objects.filter(
+        spent_on__range=(period_start, period_end),
+        deleted_at__isnull=True,
+        entry_type=HouseholdEntry.EntryType.EXPENSE,
+    ).filter(
+        Q(payment_source=card) | Q(payment_source__kind=PaymentSource.Kind.CODE, linked_source=card),
+    ).distinct().select_related("payment_source", "linked_source", "settlement_source")
+
+
+def credit_card_statement_csv_path(year, month, card_id):
+    return Path(settings.RUNTIME_DIR) / "csv" / "credit-card" / str(year) / f"{year}-{month:02d}-card-{card_id}.csv"
+
+
+def export_credit_card_statement(card, year, month, period=None):
+    """Write a UTF-8 BOM CSV for one card's selected payment month."""
+    period = period if period is not None else card.statement_period(year, month)
+    rows = []
+    if period:
+        period_start, period_end, _payment_date = period
+        entries = credit_card_statement_entries(card, period_start, period_end).order_by("spent_on", "created_at", "id")
+        for entry in entries:
+            via = "直接利用" if entry.payment_source_id == card.id else "コード決済経由"
+            rows.append([
+                entry.id,
+                entry.spent_on.isoformat(),
+                csv_safe(entry.shop_name),
+                csv_safe(entry.description),
+                entry.amount_yen,
+                via,
+                csv_safe(entry.payment_source_name_snapshot),
+                csv_safe(entry.linked_source_name_snapshot),
+                csv_safe(entry.settlement_path_snapshot),
+                csv_safe(entry.note),
+                entry.created_at.isoformat(),
+            ])
+    path = credit_card_statement_csv_path(year, month, card.id)
+    _replace_csv(
+        path,
+        ["明細ID", "利用日", "店名", "内訳", "金額", "計上区分", "入力時支払い元", "入力時カード", "引き落とし経路", "備考", "作成日時"],
+        rows,
+    )
+    return path
 
 
 def recalculate_medical(person_id, year):

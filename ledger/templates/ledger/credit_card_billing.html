@@ -1,0 +1,38 @@
+{% extends 'ledger/base.html' %}
+{% block title %}クレジットカード引落明細{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>クレジットカード引落明細</h1>
+    <p>支払月ごとに、締め日から算出した利用期間と引落予定を確認します。</p>
+  </div>
+  <form class="inline" method="get">
+    <label>支払月 <input type="month" name="month" value="{{ payment_year }}-{{ payment_month|stringformat:'02d' }}"></label>
+    <button>表示</button>
+  </form>
+</div>
+<div class="month-nav">
+  <a class="button secondary" href="{% url 'credit_card_billing' %}?month={{ prev|date:'Y-m' }}">← {{ prev|date:'Y年m月' }}</a>
+  <strong>{{ payment_year }}年{{ payment_month }}月支払分</strong>
+  <a class="button secondary" href="{% url 'credit_card_billing' %}?month={{ next|date:'Y-m' }}">{{ next|date:'Y年m月' }} →</a>
+</div>
+<div class="source-grid credit-card-grid">
+  {% for statement in statements %}
+    <a class="panel source-card credit-card-statement-card{% if statement.source.is_deleted %} is-deleted{% endif %}" href="{% url 'credit_card_billing_detail' statement.source.id %}?month={{ payment_year }}-{{ payment_month|stringformat:'02d' }}" style="--source-color: {{ statement.source.safe_main_color }}; --source-pale: {{ statement.source.pale_color }}; --source-name-color: {{ statement.source.name_color }};">
+      <span>クレジットカード{% if not statement.source.is_active %}・利用停止中{% endif %}</span>
+      <strong>{{ statement.source.name }}</strong>
+      {% if statement.configured %}
+        <small>{{ statement.period_start|date:'Y年m月d日' }}〜{{ statement.period_end|date:'Y年m月d日' }}</small>
+        <small>引落日 {{ statement.payment_date|date:'Y年m月d日' }}</small>
+        <b>¥{{ statement.total|floatformat:0 }}</b>
+        <small>{{ statement.entry_count }}件 · {{ statement.source.schedule_display }}</small>
+      {% else %}
+        <b class="unset">未設定</b>
+        <small>締め日・支払い日・支払い月を支払い元設定で登録してください。</small>
+      {% endif %}
+    </a>
+  {% empty %}
+    <div class="panel"><p>クレジットカードが登録されていません。</p><a class="button" href="{% url 'source_settings' %}">支払い元を追加</a></div>
+  {% endfor %}
+</div>
+{% endblock %}

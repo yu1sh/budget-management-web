@@ -27,6 +27,19 @@
 
     kind.addEventListener("change", updateLinkedSourceVisibility);
     updateLinkedSourceVisibility();
+
+    const scheduleFields = [...form.querySelectorAll("[data-credit-schedule-field]")];
+    const updateScheduleVisibility = () => {
+      const isCredit = kind.value === "credit_card";
+      scheduleFields.forEach((field) => {
+        field.hidden = !isCredit;
+        field.setAttribute("aria-hidden", String(!isCredit));
+        const input = field.querySelector("select, input");
+        if (input) input.disabled = !isCredit;
+      });
+    };
+    kind.addEventListener("change", updateScheduleVisibility);
+    updateScheduleVisibility();
   });
 
   document.addEventListener("DOMContentLoaded", () => {

@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q, Sum
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, HttpResponseForbidden
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
@@ -29,11 +30,25 @@ from .forms import (
 )
 from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person, resolve_settlement
 from .services import (export_household_month, export_medical_all, export_medical_person,
-                       household_csv_path, medical_csv_path, recalculate_medical)
+                       credit_card_statement_entries, export_credit_card_statement,
+                       household_csv_path, medical_csv_path,
+                       recalculate_medical)
 
 
 def _month(request):
     raw = request.GET.get("month", "")
+    try:
+        y, m = map(int, raw.split("-")) if raw else (timezone.localdate().year, timezone.localdate().month)
+        if not 2000 <= y <= 2100 or not 1 <= m <= 12:
+            raise ValueError
+        return y, m
+    except (ValueError, TypeError):
+        return timezone.localdate().year, timezone.localdate().month
+
+
+def _payment_month(request):
+    """Read the credit-card page's payment month while accepting old links."""
+    raw = request.GET.get("payment_month") or request.GET.get("month") or ""
     try:
         y, m = map(int, raw.split("-")) if raw else (timezone.localdate().year, timezone.localdate().month)
         if not 2000 <= y <= 2100 or not 1 <= m <= 12:
@@ -142,7 +157,7 @@ def household(request):
     )
     prev, nxt = _previous_next(year, month)
     flea_source_ids = list(PaymentSource.objects.filter(
-        is_active=True, kind=PaymentSource.Kind.FLEA_MARKET,
+        is_active=True, deleted_at__isnull=True, kind=PaymentSource.Kind.FLEA_MARKET,
     ).values_list("id", flat=True))
     # Render the type control only when the submitted source is a flea-market
     # source. This prevents a first-paint flash before JavaScript starts.
@@ -151,7 +166,7 @@ def household(request):
     return render(request, "ledger/household.html", {
         "form": form, "line_formset": line_formset, "entries": entries, "total": total,
         "year": year, "month": month, "prev": prev, "next": nxt, "shop_names": shop_names,
-        "has_payment_sources": PaymentSource.objects.filter(is_active=True).exists(),
+        "has_payment_sources": PaymentSource.objects.filter(is_active=True, deleted_at__isnull=True).exists(),
         "flea_source_ids": flea_source_ids,
         "show_flea_entry_type": show_flea_entry_type,
         "flea_entry_type_error": "entry_type" in form.errors,
@@ -190,7 +205,9 @@ def household_delete(request, pk):
 @login_required
 def sources(request):
     year, month = _month(request)
-    sources_qs = list(PaymentSource.objects.all())
+    # Deleted sources are intentionally absent from new/list views.  Their
+    # detail URL remains valid for historical rows and snapshots.
+    sources_qs = list(PaymentSource.objects.filter(deleted_at__isnull=True))
     base = HouseholdEntry.objects.filter(spent_on__year=year, spent_on__month=month, deleted_at__isnull=True)
     for source in sources_qs:
         direct_entries = base.filter(payment_source=source)
@@ -233,6 +250,93 @@ def source_detail(request, pk):
         "flea_profit_total": flea_profit_total, "flea_withdrawal_total": flea_withdrawal_total,
         "flea_balance": flea_balance,
     })
+
+
+def _credit_card_statement(card, payment_year, payment_month):
+    period = card.statement_period(payment_year, payment_month)
+    entries = HouseholdEntry.objects.none()
+    if period:
+        period_start, period_end, payment_date = period
+        entries = credit_card_statement_entries(card, period_start, period_end).order_by(
+            "spent_on", "created_at", "id",
+        )
+    else:
+        period_start = period_end = payment_date = None
+    total = entries.aggregate(total=Sum("amount_yen"))["total"] or 0
+    return {
+        "source": card,
+        "card": card,
+        "period": period,
+        "period_start": period_start,
+        "period_end": period_end,
+        "payment_date": payment_date,
+        "entries": entries,
+        "total": total,
+        "entry_count": entries.count(),
+        "configured": bool(period),
+        "schedule_configured": bool(period),
+    }
+
+
+@login_required
+def credit_card_billing(request):
+    """Show each credit card's statement for the selected payment month."""
+    payment_year, payment_month = _payment_month(request)
+    cards = PaymentSource.objects.filter(
+        kind=PaymentSource.Kind.CREDIT,
+        deleted_at__isnull=True,
+    ).order_by("name")
+    statements = [_credit_card_statement(card, payment_year, payment_month) for card in cards]
+    previous, following = _previous_next(payment_year, payment_month)
+    return render(request, "ledger/credit_card_billing.html", {
+        "statements": statements,
+        "card_statements": statements,
+        "cards": cards,
+        "sources": cards,
+        "periods": statements,
+        "payment_year": payment_year,
+        "payment_month": payment_month,
+        # These aliases keep the page easy to consume alongside sources.
+        "year": payment_year,
+        "month": payment_month,
+        "prev": previous,
+        "next": following,
+    })
+
+
+@login_required
+def credit_card_billing_detail(request, pk):
+    card = get_object_or_404(PaymentSource, pk=pk, kind=PaymentSource.Kind.CREDIT)
+    payment_year, payment_month = _payment_month(request)
+    statement = _credit_card_statement(card, payment_year, payment_month)
+    return render(request, "ledger/credit_card_billing_detail.html", {
+        "source": card,
+        "card": card,
+        "statement": statement,
+        "entries": statement["entries"],
+        "total": statement["total"],
+        "payment_year": payment_year,
+        "payment_month": payment_month,
+        "year": payment_year,
+        "month": payment_month,
+        "period": statement["period"],
+        "period_start": statement["period_start"],
+        "period_end": statement["period_end"],
+        "payment_date": statement["payment_date"],
+        "schedule_configured": statement["schedule_configured"],
+    })
+
+
+@login_required
+def download_credit_card_billing_csv(request, pk):
+    card = get_object_or_404(PaymentSource, pk=pk, kind=PaymentSource.Kind.CREDIT)
+    payment_year, payment_month = _payment_month(request)
+    period = card.statement_period(payment_year, payment_month)
+    path = export_credit_card_statement(card, payment_year, payment_month, period=period)
+    return FileResponse(
+        open(path, "rb"), as_attachment=True,
+        filename=f"credit-card-{card.id}-{payment_year}-{payment_month:02d}.csv",
+    )
 
 
 @login_required
@@ -288,7 +392,7 @@ def flea_market_delete(request, source_id, pk):
 @login_required
 @require_http_methods(["GET", "POST"])
 def source_settings(request, pk=None):
-    instance = get_object_or_404(PaymentSource, pk=pk) if pk else None
+    instance = get_object_or_404(PaymentSource, pk=pk, deleted_at__isnull=True) if pk else None
     if request.method == "POST":
         form = PaymentSourceForm(request.POST, instance=instance)
         if form.is_valid():
@@ -298,17 +402,52 @@ def source_settings(request, pk=None):
     else:
         form = PaymentSourceForm(instance=instance)
     selected_kind = form["kind"].value() or ""
+    # Include current deleted/inactive links in the JS kind map so an active
+    # source whose historical setting points at one can still be edited safely.
+    source_js_sources = PaymentSource.objects.all()
     return render(request, "ledger/settings_sources.html", {
-        "form": form, "sources": PaymentSource.objects.all(), "editing": instance,
+        "form": form,
+        "sources": PaymentSource.objects.filter(deleted_at__isnull=True),
+        "source_js_sources": source_js_sources,
+        "editing": instance,
         "show_linked_source": selected_kind in (PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT),
+        "show_credit_schedule": selected_kind == PaymentSource.Kind.CREDIT,
         "linked_source_error": "linked_source" in form.errors,
     })
 
 
 @login_required
+@require_POST
+def source_delete(request, pk):
+    """Delete an unused source or hide it while retaining dependent history."""
+    source = get_object_or_404(PaymentSource, pk=pk, deleted_at__isnull=True)
+    has_history = HouseholdEntry.objects.filter(
+        Q(payment_source=source) | Q(linked_source=source) | Q(settlement_source=source),
+    ).exists()
+    has_current_links = PaymentSource.objects.filter(linked_source=source).exists()
+    if has_history or has_current_links:
+        source.is_active = False
+        source.deleted_at = timezone.now()
+        source.save(update_fields=["is_active", "deleted_at", "updated_at"])
+        messages.success(request, f"{source.name}を削除済みとして非表示にしました。過去の明細と引き落とし設定は保持されています。")
+    else:
+        try:
+            source.delete()
+            messages.success(request, f"{source.name}を削除しました。")
+        except ProtectedError:
+            # A dependent may have appeared between the check and DELETE.
+            # Preserve it rather than leaving a broken link or losing history.
+            source.is_active = False
+            source.deleted_at = timezone.now()
+            source.save(update_fields=["is_active", "deleted_at", "updated_at"])
+            messages.success(request, f"{source.name}を削除済みとして非表示にしました。過去の明細と引き落とし設定は保持されています。")
+    return redirect("source_settings")
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def bank_settings(request, pk=None):
-    banks = PaymentSource.objects.filter(kind=PaymentSource.Kind.BANK).order_by("name")
+    banks = PaymentSource.objects.filter(kind=PaymentSource.Kind.BANK, deleted_at__isnull=True).order_by("name")
     instance = get_object_or_404(banks, pk=pk) if pk else None
     if request.method == "POST":
         form = BankForm(request.POST, instance=instance)
@@ -338,19 +477,24 @@ def payment_link_settings(request):
     else:
         form = PaymentLinkForm()
     linkable_payments = PaymentSource.objects.filter(
-        kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT)
+        kind__in=(PaymentSource.Kind.CODE, PaymentSource.Kind.CREDIT),
+        deleted_at__isnull=True,
     ).select_related("linked_source").order_by("name")
     available_sources = PaymentSource.objects.filter(
-        is_active=True,
+        is_active=True, deleted_at__isnull=True,
         kind__in=(PaymentSource.Kind.CREDIT, PaymentSource.Kind.BANK, PaymentSource.Kind.CASH),
     ).exists() or linkable_payments.filter(linked_source__isnull=False).exists()
+    current_link_ids = list(linkable_payments.exclude(linked_source__isnull=True).values_list("linked_source_id", flat=True))
+    all_sources = PaymentSource.objects.filter(
+        Q(deleted_at__isnull=True) | Q(pk__in=current_link_ids),
+    )
     return render(
         request,
         "ledger/settings_payment_links.html",
         {
             "form": form,
             "linkable_payments": linkable_payments,
-            "all_sources": PaymentSource.objects.all(),
+            "all_sources": all_sources,
             "current_links": {source.id: source.linked_source_id for source in linkable_payments},
             "available_sources": available_sources,
         },

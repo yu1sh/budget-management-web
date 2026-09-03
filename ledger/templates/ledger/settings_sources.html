@@ -13,7 +13,7 @@
 </div>
 <section class="panel">
   <h2>{% if editing %}{{ editing.name }}を編集{% else %}支払い元を追加{% endif %}</h2>
-  <form method="post" class="entry-form" data-payment-source-form data-source-kinds="{% for source in sources %}{{ source.id }}:{{ source.kind }},{% endfor %}">
+  <form method="post" class="entry-form" data-payment-source-form data-source-kinds="{% for source in source_js_sources %}{{ source.id }}:{{ source.kind }},{% endfor %}">
     {% csrf_token %}
     {% for field in form %}
       {% if field.name == 'is_active' %}
@@ -24,6 +24,8 @@
         </div>
       {% elif field.name == 'linked_source' %}
         <label data-linked-source-field{% if not show_linked_source %} hidden aria-hidden="true"{% else %} aria-hidden="false"{% endif %}>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
+      {% elif field.name == 'closing_day' or field.name == 'payment_day' or field.name == 'payment_month_offset' %}
+        <label data-credit-schedule-field{% if not show_credit_schedule %} hidden aria-hidden="true"{% else %} aria-hidden="false"{% endif %}>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
       {% else %}
         <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
       {% endif %}
@@ -35,12 +37,12 @@
 </section>
 <div class="table-wrap">
   <table>
-    <thead><tr><th>種類</th><th>名称</th><th>引き落とし元</th><th>状態</th><th>操作</th></tr></thead>
+    <thead><tr><th>種類</th><th>名称</th><th>色</th><th>引き落とし元</th><th>状態</th><th>操作</th></tr></thead>
     <tbody>
       {% for source in sources %}
-        <tr><td>{{ source.get_kind_display }}</td><td>{{ source.name }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% else %}—{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td><td><a href="{% url 'source_edit' source.id %}">編集</a></td></tr>
+        <tr><td>{{ source.get_kind_display }}</td><td><a class="payment-source-link" href="{% url 'source_detail' source.id %}">{{ source.name }}</a></td><td><span class="color-swatch" style="--source-color: {{ source.safe_main_color }}" title="{{ source.main_color }}"></span>{{ source.main_color }}</td><td>{% if source.linked_source %}{{ source.linked_source.name }}{% else %}—{% endif %}</td><td>{% if source.is_active %}利用中{% else %}利用停止{% endif %}</td><td><a href="{% url 'source_edit' source.id %}">編集</a> · <form class="inline delete-source-form" method="post" action="{% url 'source_delete' source.id %}" data-confirm="{{ source.name }}を削除します。履歴がある場合は非表示で保持されます。続行しますか？"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><button type="submit" class="link-button danger">削除</button></form></td></tr>
       {% empty %}
-        <tr><td colspan="5" class="empty">支払い元がありません。</td></tr>
+        <tr><td colspan="6" class="empty">支払い元がありません。</td></tr>
       {% endfor %}
     </tbody>
   </table>

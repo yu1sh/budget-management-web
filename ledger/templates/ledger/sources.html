@@ -9,7 +9,7 @@
 </div>
 <div class="source-grid">
   {% for source in sources %}
-    <a class="panel source-card" href="{% url 'source_detail' source.id %}?month={{ year }}-{{ month|stringformat:'02d' }}">
+    <a class="panel source-card{% if source.is_deleted %} is-deleted{% endif %}" href="{% url 'source_detail' source.id %}?month={{ year }}-{{ month|stringformat:'02d' }}" style="--source-color: {{ source.safe_main_color }}; --source-pale: {{ source.pale_color }}; --source-name-color: {{ source.name_color }};">
       <span>{{ source.get_kind_display }}</span>
       <strong>{{ source.name }}</strong>
       <b>¥{{ source.month_total|default:0|floatformat:0 }}</b>

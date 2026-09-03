@@ -1,0 +1,45 @@
+{% extends 'ledger/base.html' %}
+{% block title %}{{ source.name }} · クレジットカード引落明細{% endblock %}
+{% block content %}
+<div class="source-detail-page credit-card-detail" style="--source-color: {{ source.safe_main_color }}; --source-pale: {{ source.pale_color }}; --source-name-color: {{ source.name_color }};">
+  <div class="page-heading">
+    <div>
+      <p><a href="{% url 'credit_card_billing' %}?month={{ payment_year }}-{{ payment_month|stringformat:'02d' }}">← クレジットカード引落明細</a></p>
+      <h1>{{ source.name }}</h1>
+      <p>{{ payment_year }}年{{ payment_month }}月支払分 · {{ source.schedule_display }}</p>
+      {% if source.is_deleted %}<p class="danger">このカードは削除済みです。過去の設定と明細だけを表示しています。</p>{% endif %}
+    </div>
+    <form class="inline" method="get">
+      <label>支払月 <input type="month" name="month" value="{{ payment_year }}-{{ payment_month|stringformat:'02d' }}"></label>
+      <button>表示</button>
+    </form>
+  </div>
+  {% if schedule_configured %}
+    <div class="totals credit-card-totals">
+      <div class="panel"><span>利用期間</span><strong>{{ period_start|date:'Y年m月d日' }}〜{{ period_end|date:'Y年m月d日' }}</strong></div>
+      <div class="panel"><span>引落予定日</span><strong>{{ payment_date|date:'Y年m月d日' }}</strong></div>
+      <div class="panel"><span>引落予定合計</span><strong>¥{{ total|floatformat:0 }}</strong></div>
+    </div>
+  {% else %}
+    <div class="message"><p>締め日・支払い日・支払い月が未設定のため、この月の期間を計算できません。</p><p><a href="{% url 'source_edit' source.id %}">支払い元設定で登録する</a></p></div>
+  {% endif %}
+  {% if source.note %}<section class="panel source-note"><h2>メモ</h2><p>{{ source.note|linebreaksbr }}</p></section>{% endif %}
+  <div class="table-toolbar">
+    <button type="button" data-range-mode>範囲選択</button>
+    <button type="button" data-print-range disabled>選択範囲を印刷</button>
+    <button type="button" data-clear-range>選択解除</button>
+    <a class="button secondary" href="{% url 'credit_card_billing_export' source.id %}?month={{ payment_year }}-{{ payment_month|stringformat:'02d' }}">CSV出力</a>
+  </div>
+  <div class="print-title" data-print-title>{{ source.name }} {{ payment_year }}年{{ payment_month }}月引落明細</div>
+  <div class="table-wrap"><table data-selectable-table data-print-orientation="landscape" tabindex="0">
+    <thead><tr><th>利用日</th><th>店名</th><th>内訳</th><th>金額</th><th>入力時支払い元</th><th>計上区分</th><th>引き落とし経路</th><th>備考</th></tr></thead>
+    <tbody>
+      {% for entry in entries %}
+        <tr><td>{{ entry.spent_on|date:'Y-m-d' }}</td><td>{{ entry.shop_name }}</td><td>{{ entry.description }}</td><td class="amount">¥{{ entry.amount_yen|floatformat:0 }}</td><td>{{ entry.payment_source_name_snapshot }}</td><td>{% if entry.payment_source_id == source.id %}直接利用{% else %}コード決済経由{% endif %}</td><td>{{ entry.settlement_path_snapshot|default:'未設定' }}</td><td>{{ entry.note }}</td></tr>
+      {% empty %}
+        <tr><td colspan="8" class="empty">{% if schedule_configured %}この期間の明細はありません。{% else %}期間を計算できません。{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

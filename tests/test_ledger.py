@@ -593,12 +593,12 @@ def test_payment_link_settings_supports_credit_card_and_preserves_inactive_exist
 @pytest.mark.django_db
 def test_bank_management_only_manages_bank_payment_sources_and_forces_kind(client, user):
     bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="既存銀行", note="既存メモ")
-    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="カード")
+    card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="銀行外カード")
     assert client.get(reverse("bank_settings")).status_code == 302
     client.force_login(user)
     page = client.get(reverse("bank_settings"))
     html = page.content.decode()
-    assert page.status_code == 200 and "既存銀行" in html and "カード" not in html
+    assert page.status_code == 200 and "既存銀行" in html and "銀行外カード" not in html
     created = client.post(reverse("bank_settings"), {"name": "追加銀行", "note": "メモ", "is_active": "on", "kind": PaymentSource.Kind.CASH})
     assert created.status_code == 302
     added = PaymentSource.objects.get(name="追加銀行")
