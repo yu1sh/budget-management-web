@@ -1,5 +1,25 @@
 (() => {
   document.addEventListener("DOMContentLoaded", () => {
+    const nav = document.querySelector("[data-main-nav]");
+    nav?.querySelectorAll("a[href]").forEach((link) => {
+      const path = new URL(link.href).pathname;
+      if (window.location.pathname.startsWith(path)) {
+        link.setAttribute("aria-current", "page");
+        const menu = link.closest("details");
+        if (menu) menu.open = true;
+      }
+    });
+    nav?.addEventListener("keydown", (event) => {
+      const menu = event.target.closest("details");
+      if (event.key === "Escape" && menu?.open) {
+        menu.open = false;
+        menu.querySelector("summary").focus();
+      }
+    });
+    document.querySelector("[data-error-summary]")?.focus();
+  });
+
+  document.addEventListener("DOMContentLoaded", () => {
     const form = document.querySelector("[data-payment-source-form]");
     if (!form) return;
     const kind = form.querySelector("#id_kind");
@@ -82,6 +102,33 @@
     const fleaSourceIds = (form.dataset.fleaSourceIds || "").split(",").filter(Boolean);
     if (!rows || !template || !total || !add) return;
 
+    const summary = form.querySelector("[data-batch-summary]");
+    const amountOutput = form.querySelector("[data-batch-amount]");
+    const countOutput = form.querySelector("[data-batch-count]");
+    const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY" });
+    const updateSummary = () => {
+      let amount = 0;
+      let count = 0;
+      let invalid = false;
+      rows.querySelectorAll("[data-breakdown-row]").forEach((row) => {
+        const deleted = row.querySelector('[name$="-DELETE"]');
+        row.hidden = Boolean(deleted?.checked);
+        if (row.hidden) return;
+        const input = row.querySelector('[name$="-amount_yen"]');
+        if (input.validity.badInput || (input.value && !input.validity.valid)) invalid = true;
+        if (input.value && input.validity.valid) {
+          amount += Number(input.value);
+          count += 1;
+        }
+      });
+      if (!summary || !amountOutput || !countOutput) return;
+      summary.hidden = false;
+      amountOutput.textContent = invalid ? "金額を確認してください" : yen.format(amount);
+      countOutput.textContent = count ? `${count}行の金額を入力済み` : "金額を入力してください";
+    };
+    rows.addEventListener("input", updateSummary);
+    updateSummary();
+
     const updateFleaTypeVisibility = () => {
       if (!source || !fleaType) return;
       const select = fleaType.querySelector("select");
@@ -106,6 +153,7 @@
       rows.append(...wrapper.children);
       total.value = String(index + 1);
       rows.lastElementChild.querySelector("input:not([type=checkbox])")?.focus();
+      updateSummary();
     });
 
     rows.addEventListener("click", (event) => {
@@ -116,6 +164,8 @@
       if (!row || !deleted) return;
       deleted.checked = true;
       row.hidden = true;
+      add.focus();
+      updateSummary();
     });
   });
 })();

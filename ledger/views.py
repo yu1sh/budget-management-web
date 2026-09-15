@@ -32,7 +32,7 @@ from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, P
 from .services import (export_household_month, export_medical_all, export_medical_person,
                        credit_card_statement_entries, export_credit_card_statement,
                        household_csv_path, medical_csv_path,
-                       recalculate_medical)
+                       delete_medical_visit, refresh_medical_exports, save_medical_visit)
 
 
 def _month(request):
@@ -533,51 +533,6 @@ def _medical_post_data(request, year):
     return data
 
 
-def _save_medical_visit(person, year, form, visit=None, hospital_name=None):
-    """Create or update a visit and its three optional, visit-owned detail rows."""
-    with transaction.atomic():
-        selected_hospital_name = hospital_name if hospital_name is not None else form.cleaned_data["hospital_name"]
-        if visit is None:
-            visit = MedicalVisit.objects.create(
-                person=person,
-                record_year=year,
-                visited_on=form.cleaned_data["visited_on"],
-                hospital_name=selected_hospital_name,
-            )
-        else:
-            visit.visited_on = form.cleaned_data["visited_on"]
-            visit.hospital_name = selected_hospital_name
-            visit.save(update_fields=["visited_on", "hospital_name", "updated_at"])
-
-        existing = {}
-        for entry in visit.entries.select_for_update().filter(deleted_at__isnull=True).order_by("created_at", "id"):
-            existing.setdefault(entry.category, []).append(entry)
-        submitted = {category: (name, amount) for category, name, amount in form.entries}
-        for category, (name, amount) in submitted.items():
-            rows = existing.pop(category, [])
-            if rows:
-                entry = rows.pop(0)
-                entry.person = person
-                entry.record_year = year
-                entry.provider_name = name
-                entry.paid_amount_yen = amount
-                entry.save(update_fields=["person", "record_year", "provider_name", "paid_amount_yen", "updated_at"])
-                if rows:
-                    MedicalEntry.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=timezone.now())
-            else:
-                MedicalEntry.objects.create(
-                    person=person, visit=visit, record_year=year, category=category,
-                    provider_name=name, paid_amount_yen=amount,
-                )
-        for rows in existing.values():
-            MedicalEntry.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=timezone.now())
-
-        recalculate_medical(person.id, year)
-        export_medical_person(year, person.id)
-        export_medical_all(year)
-    return visit
-
-
 def _person_hospital_rollup(person, year):
     return (
         MedicalVisit.objects.filter(
@@ -650,7 +605,12 @@ def medical_visit_edit(request, pk):
             if form.cleaned_data["visited_on"].year != visit.record_year:
                 form.add_error("visited_on", f"{visit.record_year}年の日付を入力してください。")
             else:
-                _save_medical_visit(visit.person, visit.record_year, form, visit)
+                save_medical_visit(
+                    visit.person, visit.record_year,
+                    visited_on=form.cleaned_data["visited_on"],
+                    hospital_name=form.cleaned_data["hospital_name"],
+                    entries=form.entries, visit=visit,
+                )
                 messages.success(request, "受診記録を更新しました。")
                 return redirect(f"/medical/{visit.person_id}/?year={visit.record_year}")
     else:
@@ -674,14 +634,7 @@ def medical_visit_edit(request, pk):
 @require_POST
 def medical_visit_delete(request, pk):
     visit = get_object_or_404(MedicalVisit, pk=pk, deleted_at__isnull=True)
-    now = timezone.now()
-    with transaction.atomic():
-        visit.deleted_at = now
-        visit.save(update_fields=["deleted_at"])
-        visit.entries.filter(deleted_at__isnull=True).update(deleted_at=now)
-        recalculate_medical(visit.person_id, visit.record_year)
-        export_medical_person(visit.record_year, visit.person_id)
-        export_medical_all(visit.record_year)
+    delete_medical_visit(visit)
     messages.success(request, "受診記録を削除しました。")
     return redirect(f"/medical/{visit.person_id}/?year={visit.record_year}")
 
@@ -702,7 +655,10 @@ def medical_hospital_detail(request, person_id):
             if form.cleaned_data["visited_on"].year != year:
                 form.add_error("visited_on", f"{year}年のページでは{year}年の日付を入力してください。")
             else:
-                _save_medical_visit(person, year, form, hospital_name=hospital_name)
+                save_medical_visit(
+                    person, year, visited_on=form.cleaned_data["visited_on"],
+                    hospital_name=hospital_name, entries=form.entries,
+                )
                 messages.success(request, "受診記録と付随する明細を保存しました。")
                 return redirect(f"{request.path}?{urlencode({'year': year, 'name': hospital_name})}")
     else:
@@ -735,9 +691,7 @@ def medical_edit(request, pk):
             if entry.visit_id and (original_category == MedicalEntry.Category.HOSPITAL or entry.category == MedicalEntry.Category.HOSPITAL):
                 entry.visit.hospital_name = entry.provider_name if entry.category == MedicalEntry.Category.HOSPITAL else ""
                 entry.visit.save(update_fields=["hospital_name", "updated_at"])
-            recalculate_medical(entry.person_id, entry.record_year)
-            export_medical_person(entry.record_year, entry.person_id)
-            export_medical_all(entry.record_year)
+            refresh_medical_exports(entry.person_id, entry.record_year)
             messages.success(request, "医療費の明細を更新しました。")
             return redirect(f"/medical/{entry.person_id}/?year={entry.record_year}")
     else:
@@ -758,9 +712,7 @@ def medical_delete(request, pk):
         if not entry.visit.entries.filter(deleted_at__isnull=True).exclude(pk=entry.pk).exists():
             entry.visit.deleted_at = entry.deleted_at
             entry.visit.save(update_fields=["deleted_at"])
-    recalculate_medical(entry.person_id, entry.record_year)
-    export_medical_person(entry.record_year, entry.person_id)
-    export_medical_all(entry.record_year)
+    refresh_medical_exports(entry.person_id, entry.record_year)
     messages.success(request, "医療費の明細を削除しました。")
     return redirect(f"/medical/{entry.person_id}/?year={entry.record_year}")
 

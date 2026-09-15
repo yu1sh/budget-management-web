@@ -1,4 +1,4 @@
-"""Data export and deterministic medical running-total helpers."""
+"""Ledger persistence, data export, and medical running-total helpers."""
 import csv
 import os
 from pathlib import Path
@@ -6,6 +6,7 @@ from tempfile import NamedTemporaryFile
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, Sum
+from django.utils import timezone
 from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource
 
 
@@ -190,3 +191,61 @@ def export_medical_all(year):
         ["対象者ID", "対象者", "受診記録ID", "日付", "病院名", "個人累計", "明細ID", "区分", "病院名・薬局名・交通手段", "明細金額"],
         rows,
     )
+
+
+def refresh_medical_exports(person_id, year):
+    """Refresh both CSVs; each exporter recalculates the totals it needs."""
+    export_medical_person(year, person_id)
+    export_medical_all(year)
+
+
+def save_medical_visit(person, year, *, visited_on, hospital_name, entries, visit=None):
+    """Create or update a visit and its three optional, visit-owned detail rows."""
+    with transaction.atomic():
+        if visit is None:
+            visit = MedicalVisit.objects.create(
+                person=person,
+                record_year=year,
+                visited_on=visited_on,
+                hospital_name=hospital_name,
+            )
+        else:
+            visit.visited_on = visited_on
+            visit.hospital_name = hospital_name
+            visit.save(update_fields=["visited_on", "hospital_name", "updated_at"])
+
+        existing = {}
+        for entry in visit.entries.select_for_update().filter(deleted_at__isnull=True).order_by("created_at", "id"):
+            existing.setdefault(entry.category, []).append(entry)
+        submitted = {category: (name, amount) for category, name, amount in entries}
+        for category, (name, amount) in submitted.items():
+            rows = existing.pop(category, [])
+            if rows:
+                entry = rows.pop(0)
+                entry.person = person
+                entry.record_year = year
+                entry.provider_name = name
+                entry.paid_amount_yen = amount
+                entry.save(update_fields=["person", "record_year", "provider_name", "paid_amount_yen", "updated_at"])
+                if rows:
+                    MedicalEntry.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=timezone.now())
+            else:
+                MedicalEntry.objects.create(
+                    person=person, visit=visit, record_year=year, category=category,
+                    provider_name=name, paid_amount_yen=amount,
+                )
+        for rows in existing.values():
+            MedicalEntry.objects.filter(pk__in=[row.pk for row in rows]).update(deleted_at=timezone.now())
+
+        refresh_medical_exports(person.id, year)
+    return visit
+
+
+def delete_medical_visit(visit):
+    """Soft-delete a visit and its active details, then refresh medical exports."""
+    now = timezone.now()
+    with transaction.atomic():
+        visit.deleted_at = now
+        visit.save(update_fields=["deleted_at"])
+        visit.entries.filter(deleted_at__isnull=True).update(deleted_at=now)
+        refresh_medical_exports(visit.person_id, visit.record_year)
