@@ -1,8 +1,10 @@
 {% extends 'ledger/base.html' %}
 {% block title %}{{ source.name }}の引き落とし明細{% endblock %}
 {% block content %}
+<div class="source-detail-page" style="--source-color: {{ source.safe_main_color }}; --source-pale: {{ source.pale_color }}; --source-name-color: {{ source.name_color }};">
 <div class="page-heading"><div><p><a href="{% url 'settlements' %}?month={{ year }}-{{ month|stringformat:'02d' }}">← 引き落とし元別一覧</a></p><h1>{{ source.name }}</h1><p>{{ year }}年{{ month }}月 · 最終引き落とし ¥{{ total|floatformat:0 }}</p></div><form class="inline" method="get"><input type="month" name="month" value="{{ year }}-{{ month|stringformat:'02d' }}"><button>表示</button></form></div>
 {% if source.note %}<section class="panel source-note"><h2>メモ</h2><p>{{ source.note|linebreaksbr }}</p></section>{% endif %}
 <p class="field-help">経路は入力時点のスナップショットです。コード決済→カード→銀行は、最終銀行にだけこの一覧へ計上されます。</p>
 <div class="table-toolbar"><button type="button" data-range-mode>範囲選択</button><button type="button" data-print-range disabled>選択範囲を印刷</button><button type="button" data-clear-range>選択解除</button></div><div class="print-title" data-print-title>{{ source.name }} 最終引き落とし {{ year }}年{{ month }}月</div><div class="table-wrap"><table data-selectable-table data-print-orientation="landscape" tabindex="0"><thead><tr><th>日付</th><th>店名</th><th>内訳</th><th>金額</th><th>利用した支払い元</th><th>経路</th><th>備考</th></tr></thead><tbody>{% for e in entries %}<tr><td>{{ e.spent_on|date:'Y-m-d' }}</td><td>{{ e.shop_name }}</td><td>{{ e.description }}</td><td class="amount">¥{{ e.amount_yen|floatformat:0 }}</td><td><a href="{% url 'source_detail' e.payment_source_id %}?month={{ year }}-{{ month|stringformat:'02d' }}">{{ e.payment_source_name_snapshot }}</a></td><td>{{ e.settlement_path_snapshot }}</td><td>{{ e.note }}</td></tr>{% empty %}<tr><td colspan="7" class="empty">この月の明細はありません。</td></tr>{% endfor %}</tbody></table></div>
+</div>
 {% endblock %}

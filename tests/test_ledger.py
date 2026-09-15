@@ -548,6 +548,46 @@ def test_settlement_snapshots_and_final_settlement_pages(client, user):
 
 
 @pytest.mark.django_db
+def test_saved_payment_and_settlement_colors_are_applied_to_their_pages(client, user):
+    client.force_login(user)
+    bank_color = "#6A42C2"
+    payment_color = "#D85C3F"
+    bank = PaymentSource.objects.create(kind=PaymentSource.Kind.BANK, name="色銀行")
+    response = client.post(reverse("bank_edit", args=[bank.id]), {
+        "name": bank.name, "main_color": bank_color, "note": "", "is_active": "on",
+    })
+    assert response.status_code == 302
+    bank.refresh_from_db()
+    assert bank.main_color == bank_color
+
+    response = client.post(reverse("source_settings"), {
+        "kind": PaymentSource.Kind.CREDIT, "name": "色カード", "main_color": payment_color,
+        "linked_source": bank.id, "closing_day": "", "payment_day": "",
+        "payment_month_offset": "", "note": "", "is_active": "on",
+    })
+    assert response.status_code == 302
+    card = PaymentSource.objects.get(name="色カード")
+    assert card.main_color == payment_color
+    HouseholdEntry.objects.create(
+        spent_on="2026-08-18", shop_name="色確認店", description="テスト", amount_yen=900,
+        payment_source=card, payment_source_name_snapshot=card.name,
+        payment_source_kind_snapshot=card.kind, linked_source=bank,
+        linked_source_name_snapshot=bank.name, settlement_source=bank,
+        settlement_source_name_snapshot=bank.name,
+        settlement_path_snapshot=f"{card.name} → {bank.name}",
+    )
+
+    source_html = client.get(reverse("sources") + "?month=2026-08").content.decode()
+    assert f"--source-color: {payment_color}" in source_html
+    assert f"--source-color: {bank_color}" in source_html
+    settlement_url = reverse("settlement_detail", args=[bank.id]) + "?month=2026-08"
+    settlement_html = client.get(reverse("settlements") + "?month=2026-08").content.decode()
+    assert f"--source-color: {bank_color}" in settlement_html
+    settlement_detail_html = client.get(settlement_url).content.decode()
+    assert f"--source-color: {bank_color}" in settlement_detail_html
+
+
+@pytest.mark.django_db
 def test_unlinked_credit_and_code_to_unlinked_credit_are_unsettled(client, user):
     card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="未設定カード")
     code = PaymentSource.objects.create(kind=PaymentSource.Kind.CODE, name="未設定コード", linked_source=card)
