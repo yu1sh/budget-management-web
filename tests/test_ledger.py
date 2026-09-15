@@ -587,6 +587,14 @@ def test_saved_payment_and_settlement_colors_are_applied_to_their_pages(client, 
     assert f"--source-color: {bank_color}" in settlement_detail_html
 
 
+def test_caddy_csp_allows_color_style_attributes_without_allowing_inline_scripts():
+    caddyfile = Path("Caddyfile").read_text()
+    policy = caddyfile.split('Content-Security-Policy "', 1)[1].split('"', 1)[0]
+    assert "style-src-attr 'unsafe-inline'" in policy
+    assert "script-src 'self'" in policy
+    assert "script-src 'self' 'unsafe-inline'" not in policy
+
+
 @pytest.mark.django_db
 def test_unlinked_credit_and_code_to_unlinked_credit_are_unsettled(client, user):
     card = PaymentSource.objects.create(kind=PaymentSource.Kind.CREDIT, name="未設定カード")

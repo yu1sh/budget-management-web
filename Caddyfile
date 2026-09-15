@@ -5,7 +5,7 @@
     header_up X-Forwarded-Proto https
   }
   header {
-    Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:"
     Permissions-Policy "camera=(), geolocation=(), microphone=()"
   }
 }
