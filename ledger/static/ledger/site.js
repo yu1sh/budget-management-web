@@ -6,7 +6,7 @@
       if (window.location.pathname.startsWith(path)) {
         link.setAttribute("aria-current", "page");
         const menu = link.closest("details");
-        if (menu) menu.open = true;
+        if (menu) menu.classList.add("has-current");
       }
     });
     nav?.addEventListener("keydown", (event) => {
@@ -14,7 +14,57 @@
       if (event.key === "Escape" && menu?.open) {
         menu.open = false;
         menu.querySelector("summary").focus();
+        event.stopImmediatePropagation();
       }
+    });
+    const toggle = document.querySelector("[data-nav-toggle]");
+    if (nav && toggle) {
+      toggle.hidden = false;
+      document.querySelector(".site-header").classList.add("navigation-ready");
+      const closeNavigation = () => {
+        nav.classList.remove("is-open");
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.textContent = "メニュー";
+      };
+      toggle.addEventListener("click", () => {
+        const open = nav.classList.toggle("is-open");
+        toggle.setAttribute("aria-expanded", String(open));
+        toggle.textContent = open ? "閉じる" : "メニュー";
+      });
+      nav.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !event.target.closest("details[open]") && nav.classList.contains("is-open")) {
+          closeNavigation();
+          toggle.focus();
+        }
+      });
+      window.matchMedia("(min-width: 761px)").addEventListener("change", closeNavigation);
+    }
+    document.addEventListener("click", (event) => {
+      document.querySelectorAll(".settings-menu[open]").forEach((menu) => {
+        if (!menu.contains(event.target)) menu.open = false;
+      });
+    });
+    document.querySelectorAll('input[type="number"]').forEach((input) => {
+      input.inputMode = "numeric";
+    });
+    document.querySelectorAll(".table-wrap").forEach((wrapper, index) => {
+      const hint = document.createElement("p");
+      hint.className = "table-scroll-hint";
+      hint.id = `table-scroll-hint-${index}`;
+      hint.textContent = "左右にスクロールすると、残りの項目を確認できます。";
+      hint.hidden = true;
+      wrapper.before(hint);
+      wrapper.setAttribute("role", "region");
+      wrapper.setAttribute("aria-label", `${document.querySelector("h1")?.textContent.trim() || "記録"}の一覧`);
+      const updateOverflow = () => {
+        const overflow = wrapper.scrollWidth > wrapper.clientWidth + 1;
+        hint.hidden = !overflow;
+        wrapper.tabIndex = overflow ? 0 : -1;
+        if (overflow) wrapper.setAttribute("aria-describedby", hint.id);
+        else wrapper.removeAttribute("aria-describedby");
+      };
+      new ResizeObserver(updateOverflow).observe(wrapper);
+      updateOverflow();
     });
     document.querySelector("[data-error-summary]")?.focus();
   });
@@ -105,6 +155,7 @@
     const summary = form.querySelector("[data-batch-summary]");
     const amountOutput = form.querySelector("[data-batch-amount]");
     const countOutput = form.querySelector("[data-batch-count]");
+    const maxRows = Number(form.querySelector('[name="lines-MAX_NUM_FORMS"]')?.value || 50);
     const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY" });
     const updateSummary = () => {
       let amount = 0;
@@ -113,6 +164,9 @@
       rows.querySelectorAll("[data-breakdown-row]").forEach((row) => {
         const deleted = row.querySelector('[name$="-DELETE"]');
         row.hidden = Boolean(deleted?.checked);
+        row.querySelectorAll("input").forEach((input) => {
+          if (input !== deleted) input.disabled = row.hidden;
+        });
         if (row.hidden) return;
         const input = row.querySelector('[name$="-amount_yen"]');
         if (input.validity.badInput || (input.value && !input.validity.valid)) invalid = true;
@@ -121,6 +175,8 @@
           count += 1;
         }
       });
+      add.disabled = rows.querySelectorAll("[data-breakdown-row]:not([hidden])").length >= maxRows;
+      add.textContent = add.disabled ? `内訳は${maxRows}行までです` : "内訳を追加";
       if (!summary || !amountOutput || !countOutput) return;
       summary.hidden = false;
       amountOutput.textContent = invalid ? "金額を確認してください" : yen.format(amount);
@@ -145,6 +201,19 @@
     updateFleaTypeVisibility();
 
     add.addEventListener("click", () => {
+      if (add.disabled) return;
+      const removed = rows.querySelector("[data-breakdown-row][hidden]");
+      if (removed) {
+        removed.querySelectorAll("input").forEach((input) => {
+          if (input.type === "checkbox") input.checked = false;
+          else input.value = "";
+          input.removeAttribute("aria-invalid");
+        });
+        removed.querySelectorAll(".errorlist").forEach((error) => error.remove());
+        updateSummary();
+        removed.querySelector("input:not([type=checkbox])")?.focus();
+        return;
+      }
       const index = Number(total.value);
       const fragment = template.content.cloneNode(true);
       const wrapper = document.createElement("div");
@@ -164,8 +233,8 @@
       if (!row || !deleted) return;
       deleted.checked = true;
       row.hidden = true;
-      add.focus();
       updateSummary();
+      add.focus();
     });
   });
 })();

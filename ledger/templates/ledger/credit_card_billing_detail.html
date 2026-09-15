@@ -10,7 +10,7 @@
       {% if source.is_deleted %}<p class="danger">このカードは削除済みです。過去の設定と明細だけを表示しています。</p>{% endif %}
     </div>
     <form class="inline" method="get">
-      <label>支払月 <input type="month" name="month" value="{{ payment_year }}-{{ payment_month|stringformat:'02d' }}"></label>
+      <label>支払月 <input aria-label="表示する月" type="month" name="month" value="{{ payment_year }}-{{ payment_month|stringformat:'02d' }}"></label>
       <button>表示</button>
     </form>
   </div>

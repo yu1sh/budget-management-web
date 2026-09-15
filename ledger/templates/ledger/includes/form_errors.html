@@ -1,0 +1,10 @@
+{% if form.errors %}
+<div class="form-error-summary" role="alert" tabindex="-1" data-error-summary>
+  <h2>入力内容を確認してください</h2>
+  <p>入力内容は保持されています。下の項目を修正して、もう一度保存してください。</p>
+  <ul>
+    {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+    {% for field in form %}{% for error in field.errors %}<li><a href="#{{ field.id_for_label }}">{{ field.label }}：{{ error }}</a></li>{% endfor %}{% endfor %}
+  </ul>
+</div>
+{% endif %}

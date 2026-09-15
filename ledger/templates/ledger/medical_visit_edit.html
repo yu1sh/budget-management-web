@@ -10,7 +10,7 @@
   <p>薬局・交通費は、この受診記録の病院に付随する明細として更新されます。</p>
   <form method="post">
     {% csrf_token %}
-    {{ form.non_field_errors }}
+    {% include 'ledger/includes/form_errors.html' %}
     <div class="medical-date-field"><label>{{ form.visited_on.label }}{{ form.visited_on }}{{ form.visited_on.errors }}</label></div>
     <div class="medical-cost-grid">
       <fieldset class="medical-cost-card"><legend>病院</legend><label>{{ form.hospital_name.label }}{{ form.hospital_name }}{{ form.hospital_name.errors }}</label><label>{{ form.hospital_amount.label }}{{ form.hospital_amount }}{{ form.hospital_amount.errors }}</label></fieldset>

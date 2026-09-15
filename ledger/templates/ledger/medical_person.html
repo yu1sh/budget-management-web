@@ -6,7 +6,7 @@
     <h1>{{ person.name }}の医療費（{{ year }}年）</h1>
     <p class="total">¥{{ total|floatformat:0 }}</p>
   </div>
-  <form class="inline" method="get"><input type="number" min="2000" max="2100" name="year" value="{{ year }}"><button>表示</button></form>
+  <form class="inline" method="get"><input aria-label="表示する年" type="number" min="2000" max="2100" name="year" value="{{ year }}"><button>表示</button></form>
 </div>
 
 <section class="panel">

@@ -8,7 +8,7 @@
   <h2>{{ hospital_name }}に受診記録を追加</h2>
   <p>病院名は選択済みです。薬局・交通費はこの病院に付随する明細として保存されます。病院の金額、薬局、交通費は入力する項目だけ記入してください。</p>
   <form method="post">
-    {% csrf_token %}{{ form.non_field_errors }}
+    {% csrf_token %}{% include 'ledger/includes/form_errors.html' %}
     <div class="medical-date-field"><label>{{ form.visited_on.label }}{{ form.visited_on }}{{ form.visited_on.errors }}</label></div>
     <div class="medical-cost-grid">
       <fieldset class="medical-cost-card"><legend>病院（{{ hospital_name }}）</legend><label>{{ form.hospital_amount.label }}{{ form.hospital_amount }}{{ form.hospital_amount.errors }}</label></fieldset>

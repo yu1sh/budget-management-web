@@ -58,3 +58,134 @@ button:disabled,.button[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
   .table-toolbar{gap:.6rem}
 }
 @media print{.skip-link{display:none!important}}
+
+/* Responsive application shell: keep navigation separate from page content. */
+body { background: #f4f6fa; }
+a { color: var(--blue); text-underline-offset: .2em; }
+h1 { font-size: clamp(1.45rem, 2.2vw, 2rem); line-height: 1.4; letter-spacing: -.025em; }
+h1, h2, h3, p, .source-card, .message { overflow-wrap: anywhere; }
+main { width: min(100%, 1400px); max-width: none; padding: 2rem clamp(1rem, 3vw, 2.5rem) 4rem; }
+main > *, .page-heading > *, .entry-form > *, .actions > *, .source-grid > * { min-width: 0; }
+.site-header { display: block; padding: 0; border-bottom: 1px solid #27445e; }
+.header-inner { max-width: 1400px; margin: auto; padding: 1rem clamp(1rem, 3vw, 2.5rem); display: flex; gap: 1.5rem; align-items: center; justify-content: space-between; }
+.brand { flex-shrink: 0; letter-spacing: -.025em; }
+.site-header nav { justify-content: flex-end; gap: .2rem; }
+.site-header nav > a, .settings-menu summary { white-space: nowrap; font-size: .9rem; min-height: 44px; display: flex; align-items: center; }
+.site-header .settings-menu summary { display: block; }
+.settings-menu summary::after { margin-left: .35rem; }
+.settings-menu-items { top: calc(100% + .5rem); box-shadow: 0 12px 32px #102a4333; }
+.settings-menu-items a { white-space: normal; }
+.settings-menu.has-current > summary { background: #24435f; box-shadow: inset 0 -2px #afd5ff; }
+.nav-toggle { display: none; }
+.page-heading { margin-bottom: 1.5rem; align-items: flex-start; }
+.page-heading > div:first-child { flex: 1 1 28rem; }
+.page-heading p { color: #52677f; max-width: 65ch; margin: .65rem 0; }
+.page-heading .total { color: var(--blue); }
+.panel { padding: clamp(1rem, 2vw, 1.5rem); box-shadow: 0 2px 6px #16223504; }
+.hero { margin: clamp(2rem, 8vh, 6rem) auto; }
+.choice { padding: clamp(1.25rem, 3vw, 2rem); border-width: 1px; min-width: 0; box-shadow: 0 4px 14px #16223505; }
+.choice::after { content: "入力画面へ →"; color: var(--blue); font-size: .9rem; font-weight: 650; margin-top: 1rem; }
+.source-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.source-card { align-content: start; gap: .5rem; padding: 1.25rem; }
+.source-card b { font-variant-numeric: tabular-nums; }
+.totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem; margin: 1rem 0; }
+.totals .panel { margin: 0; min-width: 0; }
+.breakdown { padding-left: 0; }
+.breakdown li { padding: .5rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.breakdown b { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* Inputs align by their labels; help and errors never widen a grid column. */
+input, select, textarea { min-width: 0; max-width: 100%; min-height: 44px; }
+input[type="checkbox"] { min-height: 0; }
+input[type="color"] { min-height: 44px; }
+input[type="number"] { font-variant-numeric: tabular-nums; }
+button, .button { min-height: 44px; text-align: center; line-height: 1.5; }
+button:hover:not(:disabled), .button:hover { filter: brightness(.94); }
+button:disabled { opacity: .55; }
+.entry-form { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 1.1rem; }
+.entry-form > button, .entry-form > .button { align-self: end; }
+.form-field { display: grid; gap: .4rem; min-width: 0; }
+.form-field > label { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-weight: 650; }
+.form-field-checkbox { align-self: end; }
+.required-mark { color: #52677f; font-size: .7rem; font-weight: 500; border: 1px solid var(--line); border-radius: 4px; padding: 0 .3rem; }
+.entry-form > .form-error-summary, .entry-form > .form-notice { grid-column: 1 / -1; }
+.form-error-summary h2 { margin: 0; color: var(--danger); }
+.form-error-summary li + li { margin-top: .3rem; }
+.field-help ul { padding-left: 1.2rem; }
+.auth-card { margin: 2rem auto; max-width: 620px; }
+.auth-card small { font-weight: 400; color: #52677f; }
+.auth-card h1 { margin-bottom: 1rem; }
+.page-heading form.inline, .month-actions form { display: flex; align-items: end; flex-wrap: nowrap; gap: .5rem; }
+.page-heading form.inline > input { width: 11rem; }
+.page-heading form.inline > label { display: grid; gap: .35rem; font-size: .9rem; }
+.page-heading form.inline > button { flex-shrink: 0; }
+.common-entry-grid textarea { min-height: 5rem; }
+.medical-cost-card legend { max-width: 100%; overflow-wrap: anywhere; }
+.batch-actions, .medical-entry-actions { border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1.25rem; }
+.batch-actions > button { margin-left: auto; }
+
+/* Wide records scroll inside their own region, never the whole page. */
+.table-wrap { max-width: 100%; min-width: 0; overscroll-behavior-x: contain; }
+.table-wrap td { max-width: 22rem; overflow-wrap: anywhere; }
+.table-wrap td.amount { overflow-wrap: normal; }
+.table-wrap .no-select { white-space: nowrap; }
+.table-wrap tbody tr:hover { background: #f5f9ff; }
+.table-wrap td > form { margin: .3rem 0 0; }
+.table-wrap td > a, .table-wrap .link-button { display: inline-block; padding-block: .4rem; }
+.table-wrap .delete-source-form { margin: 0; }
+.compact-table { min-width: 0; }
+.table-scroll-hint { margin: .75rem 0 .4rem; color: #52677f; font-size: .85rem; }
+.table-toolbar { gap: .6rem; }
+.table-toolbar [data-range-mode] { background: #e4edf8; color: #123; }
+.table-toolbar [aria-pressed="true"] { background: var(--blue); color: #fff; }
+.selection-active { outline: 2px solid var(--blue); outline-offset: -2px; }
+.selection-active td:not(.no-select) { cursor: crosshair; }
+
+@media (max-width: 1199px) {
+  .header-inner { flex-wrap: wrap; gap: .6rem; }
+  .site-header nav { width: 100%; justify-content: flex-start; }
+  .settings-menu { margin-left: auto; }
+  .common-entry-grid, .entry-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .common-entry-grid .note-field { grid-column: 1 / -1; }
+  .medical-cost-grid { grid-template-columns: 1fr; }
+  .medical-cost-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+  .medical-cost-card label { margin: 0; }
+}
+@media(max-width:760px) {
+  .header-inner { gap: .5rem; padding: .75rem 1rem; }
+  .brand { font-size: 1rem; }
+  .navigation-ready .nav-toggle { display: block; margin-left: auto; font-size: .85rem; }
+  .navigation-ready nav:not(.is-open) { display: none; }
+  .site-header nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; padding-top: .5rem; }
+  .site-header nav > a { white-space: normal; line-height: 1.5; }
+  .settings-menu { grid-column: 1 / -1; margin: 0; }
+  .settings-menu-items { margin-top: .5rem; min-width: 0; }
+  .page-heading { gap: 1rem; margin-bottom: 1.25rem; }
+  .page-heading > div:first-child { flex-basis: 100%; }
+  .page-heading > .actions, .page-heading > form.inline { width: 100%; }
+  .page-heading form.inline > input, .page-heading form.inline > label { flex: 1; width: auto; min-width: 0; }
+  .page-heading .actions > .button { flex: 1 1 auto; }
+  .entry-form, .common-entry-grid, .medical-cost-card { grid-template-columns: 1fr; }
+  .common-entry-grid .note-field { grid-column: auto; }
+  .batch-actions > button, .medical-entry-actions > button { width: 100%; min-width: 0; }
+  .batch-summary { border: 0; padding: 0; }
+  .breakdown-row { grid-template-columns: minmax(0, 1fr); }
+  .hospital-add-form { width: 100%; }
+  .hospital-add-form label { min-width: 0; }
+  .table-toolbar > .button, .table-toolbar > button { flex: 1 1 40%; font-size: .85rem; }
+  .compact-table th, .compact-table td { padding: .65rem .5rem; }
+  .compact-table th { white-space: normal; }
+  .empty { padding: 1.5rem 1rem; }
+  .auth-card { margin: 1rem auto; padding: 1.25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+}
+
+.form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: .75rem; border-top: 1px solid var(--line); padding-top: 1rem; margin-top: .25rem; }
+.form-actions > button { min-width: 10rem; }
+.compact-table th:last-child, .compact-table td:last-child { min-width: 5rem; white-space: nowrap; }
+@media(max-width:760px) {
+  .form-actions { flex-wrap: wrap; }
+  .form-actions > * { flex: 1 1 auto; }
+}
