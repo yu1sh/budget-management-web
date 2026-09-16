@@ -11,7 +11,8 @@
   <a class="skip-link" href="#main-content">本文へ移動</a>
   <header class="site-header">
     <div class="header-inner">
-      <a href="{% url 'chooser' %}" class="brand"><span class="brand-mark" aria-hidden="true">帳</span><span>家計簿・医療費記録<small>暮らしの記録を、ひとつに。</small></span></a>
+      <!-- Icon source: https://kohacu.com/20180615post-19088/ -->
+      <a href="{% url 'chooser' %}" class="brand"><span class="brand-mark" aria-hidden="true"><span class="brand-icon"></span></span><span>家計簿・医療費記録<small>暮らしの記録を、ひとつに。</small></span></a>
       {% if user.is_authenticated %}
       <button class="nav-toggle secondary" type="button" aria-expanded="false" aria-controls="main-navigation" data-nav-toggle hidden>メニュー</button>
       <nav id="main-navigation" aria-label="メインナビゲーション" data-main-nav>

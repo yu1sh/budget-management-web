@@ -221,7 +221,8 @@ button, .button { border-radius: 999px; padding: .65rem 1.15rem; font-weight: 60
 .site-header a, .site-header .link-button, .settings-menu summary { color: var(--ink); }
 .brand { display: flex; align-items: center; gap: .75rem; font-size: .95rem; font-weight: 700; }
 .brand small { display: block; font-size: .68rem; color: var(--muted); font-weight: 400; margin-top: .2rem; }
-.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; background: var(--ink); color: white; border-radius: 12px; font-family: serif; font-size: 1.1rem; flex-shrink: 0; }
+.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; background: #fbe2d0; color: var(--ink); border-radius: 12px; flex-shrink: 0; }
+.brand-icon { display: block; width: 26px; height: 26px; background: currentColor; -webkit-mask: url("kohacu-cat-silhouette.png") center / contain no-repeat; mask: url("kohacu-cat-silhouette.png") center / contain no-repeat; }
 .site-header nav > a, .settings-menu summary { border-radius: 10px; }
 .site-header nav a:hover, .settings-menu summary:hover { background: #f3f1ec; }
 .site-header nav a[aria-current="page"] { background: var(--peach); color: var(--brown); font-weight: 650; }
@@ -329,6 +330,7 @@ td { padding: 1rem; font-size: .9rem; }
 @media (max-width: 760px) {
   .brand small { display: none; }
   .brand-mark { width: 30px; height: 30px; border-radius: 9px; }
+  .brand-icon { width: 22px; height: 22px; }
   .brand { font-size: .85rem; gap: .5rem; }
   .workspace-caption { margin-bottom: 1.25rem; font-size: .6rem; }
   .workspace-caption span { display: none; }
@@ -355,8 +357,7 @@ td { padding: 1rem; font-size: .9rem; }
   .household-table { min-width: 0; }
   .household-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .household-table tbody { display: block; }
-  .household-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: .6rem 1rem; gap: .3rem 1rem; border-bottom: 1px solid var(--line); }
-  .household-table tr:last-child { border-bottom: 0; }
+  .household-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: .6rem 1rem; gap: .3rem 1rem; margin: .3rem .25rem; border: 1px solid #9f978c; border-radius: 14px; background: #fff; }
   .household-table td { display: block; padding: 0; border: 0; max-width: none; min-width: 0; text-align: left; }
   .household-table td::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 400; color: var(--muted); margin-bottom: .05rem; }
   .household-table td[data-label="店名"], .household-table td[data-label="備考"], .household-table td[data-label="引き落とし経路"], .household-table td.no-select, .household-table td.empty { grid-column: 1 / -1; }
