@@ -24,7 +24,7 @@
       {% if statement.configured %}
         <small>{{ statement.period_start|date:'Y年m月d日' }}〜{{ statement.period_end|date:'Y年m月d日' }}</small>
         <small>引落日 {{ statement.payment_date|date:'Y年m月d日' }}</small>
-        <b>¥{{ statement.total|floatformat:0 }}</b>
+        <b>¥{{ statement.total|floatformat:"0g" }}</b>
         <small>{{ statement.entry_count }}件 · {{ statement.source.schedule_display }}</small>
       {% else %}
         <b class="unset">未設定</b>

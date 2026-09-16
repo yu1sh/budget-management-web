@@ -7,19 +7,23 @@
   <title>{% block title %}家計簿・医療費記録{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'ledger/site.css' %}">
 </head>
-<body>
+<body{% if user.is_authenticated %} class="app-shell"{% endif %}>
   <a class="skip-link" href="#main-content">本文へ移動</a>
   <header class="site-header">
     <div class="header-inner">
-      <a href="{% url 'chooser' %}" class="brand">家計簿・医療費記録</a>
+      <a href="{% url 'chooser' %}" class="brand"><span class="brand-mark" aria-hidden="true">帳</span><span>家計簿・医療費記録<small>暮らしの記録を、ひとつに。</small></span></a>
       {% if user.is_authenticated %}
       <button class="nav-toggle secondary" type="button" aria-expanded="false" aria-controls="main-navigation" data-nav-toggle hidden>メニュー</button>
       <nav id="main-navigation" aria-label="メインナビゲーション" data-main-nav>
+        <span class="nav-section">日々の記録</span>
+        <a href="{% url 'chooser' %}">ホーム</a>
         <a href="{% url 'household' %}">家計簿</a>
-        <a href="{% url 'sources' %}">支払い元別</a>
-        <a href="{% url 'credit_card_billing' %}">クレジットカード引落明細</a>
-        <a href="{% url 'settlements' %}">引き落とし元別</a>
         <a href="{% url 'medical' %}">医療費</a>
+        <span class="nav-section">集計・確認</span>
+        <a href="{% url 'sources' %}">支払い元別</a>
+        <a href="{% url 'credit_card_billing' %}">カード引落明細</a>
+        <a href="{% url 'settlements' %}">引き落とし元別</a>
+        <span class="nav-section">管理</span>
         <details class="settings-menu">
           <summary>設定</summary>
           <div class="settings-menu-items">
@@ -37,9 +41,11 @@
   </header>
   <main id="main-content" tabindex="-1">
     {% if messages %}<div class="messages" role="status">{% for message in messages %}<p class="message {{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+    <div class="workspace-caption" aria-hidden="true">HOUSEHOLD &amp; HEALTH <span>暮らしの記録</span></div>
     {% block content %}{% endblock %}
   </main>
   <script src="{% static 'ledger/site.js' %}" defer></script>
   <script src="{% static 'ledger/table-print.js' %}" defer></script>
+  <script src="{% static 'ledger/record-search.js' %}" defer></script>
 </body>
 </html>
