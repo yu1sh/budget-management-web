@@ -36,15 +36,38 @@ chmod +x setup.sh scripts/*.sh
 
 ## 日常運用
 
+本番コードの更新は GitHub Actions が行います。サーバー上で `git pull` や `docker compose up --build` を実行すると旧配置のコードを起動するため、手動更新には使わないでください。状態と直近ログは次のコマンドで確認できます。
+
 ```bash
-git pull
-docker compose up -d --build
-docker compose exec app python manage.py bootstrap_admin
-docker compose exec app python manage.py backup_data
+cd /path/to/your/deployment
 docker compose ps
+docker compose logs --tail=100 app
 ```
 
 復元する場合は、先に対象バックアップを安全な場所へコピーし、サーバー上で `./scripts/restore.sh /absolute/path/to/backup` を実行します。復元中はアプリが一時停止します。
+
+## GitHub Actions による自動デプロイ
+
+`main` への push 時、テストと secret/data チェックが両方成功した後に GitHub-hosted runner から本番へデプロイします。runner は Tailscale の OIDC 連携で一時的に tailnet へ接続し、SSH のポートをインターネットに公開しません。デプロイは Git commit SHA ごとの不変ディレクトリで行い、既存の本番 `.env` と Docker ボリュームを再利用します。
+
+デプロイ前にアプリとバックアップサービスを停止して `app_runtime` 全体と整合性確認済み SQLite バックアップを保存します。バックアップはサーバー上の専用ディレクトリに蓄積し、自動削除しません。起動後の応答確認に失敗すると直前のアプリコードを再起動します。データの自動復元は行わず、バックアップを保持します。古いリリースとイメージも自動削除しません。
+
+GitHub リポジトリの **Settings → Environments → production** で、デプロイ可能なブランチを `main` に制限し、次の値を設定します。
+
+| 種類 | 名前 | 値 |
+| --- | --- | --- |
+| Variable | `DEPLOY_HOST` | 本番サーバーの Tailscale IPv4 アドレス |
+| Variable | `DEPLOY_PORT` | `22` |
+| Variable | `DEPLOY_USER` | 制限付きの専用SSHユーザー |
+| Variable | `DEPLOY_PATH` | サーバー上の配置先の絶対パス |
+| Variable | `DEPLOY_KNOWN_HOSTS` | 別経路で確認した本番サーバーのホスト鍵エントリ |
+| Variable | `TS_OAUTH_CLIENT_ID` | Tailscale の federated identity client ID |
+| Variable | `TS_AUDIENCE` | 同 federated identity の audience |
+| Secret | `DEPLOY_SSH_KEY` | デプロイ専用SSH秘密鍵（パスフレーズなし） |
+
+Tailscale には `tag:ci` と、本リポジトリの `production` 環境だけを信頼する GitHub OIDC federated identity を設定します。ACL はユーザー端末の接続を維持しつつ、`tag:ci` から本番サーバーの TCP/22 だけを許可します。専用 SSH 公開鍵は forced command に固定し、通常のシェル、ポート転送、Docker 操作権限は与えません。アプリ側のデプロイヘルパーだけが root 権限で動作します。
+
+`DEPLOY_KNOWN_HOSTS` に設定するホスト公開鍵は本番サーバーから取得し、SHA-256 フィンガープリントを別経路で確認済みです。workflow は厳密なホスト鍵検証を行い、実行時の `ssh-keyscan` で鍵を信頼することはありません。
 
 ## データとプライバシー
 
