@@ -14,7 +14,7 @@
 <section class="panel">
   <h2>{% if editing %}{{ editing.name }}を編集{% else %}支払い元を追加{% endif %}</h2>
   <form method="post" class="entry-form" data-payment-source-form data-source-kinds="{% for source in source_js_sources %}{{ source.id }}:{{ source.kind }},{% endfor %}">
-    {% csrf_token %}
+    {% csrf_token %}{% include 'ledger/includes/form_errors.html' %}
     {% for field in form %}
       {% if field.name == 'is_active' %}
         <div>
@@ -27,12 +27,12 @@
       {% elif field.name == 'closing_day' or field.name == 'payment_day' or field.name == 'payment_month_offset' %}
         <label data-credit-schedule-field{% if not show_credit_schedule %} hidden aria-hidden="true"{% else %} aria-hidden="false"{% endif %}>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
       {% else %}
-        <label>{{ field.label }}{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>
+        {% include 'ledger/includes/form_field.html' %}
       {% endif %}
     {% endfor %}
     {% if linked_source_error and not show_linked_source %}<div class="form-notice form-error" role="alert">引き落とし元の指定を確認してください。{{ form.linked_source.errors }}</div>{% endif %}
-    <button>保存</button>
-    {% if editing %}<a class="button secondary" href="{% url 'source_settings' %}">キャンセル</a>{% endif %}
+    <div class="form-actions"><button type="submit">{% if editing %}変更を保存{% else %}追加する{% endif %}</button>
+    {% if editing %}<a class="button secondary" href="{% url 'source_settings' %}">キャンセル</a>{% endif %}</div>
   </form>
 </section>
 <div class="table-wrap">

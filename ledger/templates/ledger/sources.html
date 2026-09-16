@@ -5,7 +5,7 @@
     <h1>支払い元別</h1>
     <p>{{ year }}年{{ month }}月の支払い元別合計です。入力は家計簿ページで行います。</p>
   </div>
-  <a class="button secondary" href="{% url 'payment_link_settings' %}">引き落とし元を設定</a>
+  <div class="actions"><form class="inline" method="get"><label>表示する月 <input type="month" name="month" value="{{ year }}-{{ month|stringformat:'02d' }}"></label><button>表示</button></form><a class="button secondary" href="{% url 'payment_link_settings' %}">引き落とし元を設定</a></div>
 </div>
 <div class="source-grid">
   {% for source in sources %}

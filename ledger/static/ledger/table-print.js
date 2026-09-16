@@ -44,11 +44,25 @@
       if (message && !window.confirm(message)) event.preventDefault();
     });
     if (!mode) return;
+    const stopSelection = () => {
+      selecting = false;
+      clear();
+      if (table) table.classList.remove("selection-active");
+      mode.disabled = false;
+      mode.textContent = "範囲選択";
+      mode.setAttribute("aria-pressed", "false");
+    };
+    mode.setAttribute("aria-pressed", "false");
     mode.addEventListener("click", () => {
       table = $("[data-selectable-table]");
       if (!table || !dataRows().length) return;
+      if (table.classList.contains("selection-active")) {
+        stopSelection();
+        return;
+      }
       table.classList.add("selection-active"); table.focus();
-      mode.textContent = "範囲を選択中"; mode.disabled = true;
+      mode.textContent = "範囲選択を終了";
+      mode.setAttribute("aria-pressed", "true");
     });
     document.addEventListener("pointerdown", (event) => {
       if (!table || !table.classList.contains("selection-active")) return;
@@ -64,10 +78,20 @@
     document.addEventListener("pointerup", () => { selecting = false; });
     document.addEventListener("pointercancel", () => { selecting = false; });
     document.addEventListener("keydown", (event) => {
+      if (!table || document.activeElement !== table || !table.classList.contains("selection-active")) return;
+      if (event.key === "Escape") {
+        stopSelection();
+        mode.focus();
+        return;
+      }
       if (!table || !table.classList.contains("selection-active") || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
       const rows = dataRows(); if (!rows.length) return;
       event.preventDefault();
-      if (!anchor) anchor = focus = {row: 0, col: 0};
+      if (!anchor) {
+        anchor = {row: 0, col: 0};
+        focus = {...anchor};
+      }
+      focus = {...focus};
       const maxRow = rows.length - 1, maxCol = selectableCells(rows[0]).length - 1;
       if (event.key === "ArrowUp") focus.row = Math.max(0, focus.row - 1);
       if (event.key === "ArrowDown") focus.row = Math.min(maxRow, focus.row + 1);
@@ -75,7 +99,7 @@
       if (event.key === "ArrowRight") focus.col = Math.min(maxCol, focus.col + 1);
       paint();
     });
-    reset.addEventListener("click", () => { clear(); if (table) table.classList.remove("selection-active"); mode.disabled = false; mode.textContent = "範囲選択"; });
+    reset.addEventListener("click", stopSelection);
     print.addEventListener("click", () => {
       if (!table || !anchor) return;
       $("#range-print-container")?.remove();
