@@ -3,12 +3,14 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       DJANGO_SECRET_KEY: ci-only-secret-not-for-production
       DEBUG: '1'
       SECURE_SSL_REDIRECT: '0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with: {python-version: '3.13'}
       - run: pip install -r requirements-dev.txt
@@ -17,9 +19,15 @@ jobs:
       - run: pytest
   secret-and-data-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: actions/checkout@v6
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
       - run: "! git ls-files | grep -E '(\\.env$|\\.sqlite3$|\\.csv$|(^|/)runtime/)'"
   deploy:
     name: Deploy to production
@@ -36,7 +44,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - name: Validate deployment settings
