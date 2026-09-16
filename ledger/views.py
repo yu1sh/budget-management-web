@@ -28,6 +28,7 @@ from .forms import (
     PaymentSourceForm,
     PersonForm,
 )
+from .greetings import greeting_for_hour
 from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person, resolve_settlement
 from .services import (export_household_month, export_medical_all, export_medical_person,
                        credit_card_statement_entries, export_credit_card_statement,
@@ -111,7 +112,8 @@ def chooser(request):
         record_year=today.year, deleted_at__isnull=True,
     ).aggregate(total=Sum("paid_amount_yen"))["total"] or 0
     return render(request, "ledger/chooser.html", {
-        "today": today, "expense_total": expense_total, "medical_total": medical_total,
+        "today": today, "greeting": greeting_for_hour(timezone.localtime().hour),
+        "expense_total": expense_total, "medical_total": medical_total,
         "recent_entries": entries[:5],
         "has_payment_sources": PaymentSource.objects.filter(is_active=True, deleted_at__isnull=True).exists(),
         "has_people": Person.objects.filter(is_active=True).exists(),

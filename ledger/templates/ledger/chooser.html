@@ -3,8 +3,7 @@
 {% block content %}
 <section class="home-intro">
   <p class="eyebrow">{{ today|date:'Y年n月j日' }}</p>
-  <h1>毎日の記録を、<br>暮らしの見通しに。</h1>
-  <p>支出と医療費を整理して、必要なときにすぐ確認。</p>
+  <h1>{{ greeting }}</h1>
 </section>
 <section class="overview-grid" aria-label="現在の集計">
   <a class="overview-card overview-featured" href="{% url 'household' %}">
