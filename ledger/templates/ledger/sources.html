@@ -12,9 +12,9 @@
     <a class="panel source-card{% if source.is_deleted %} is-deleted{% endif %}" href="{% url 'source_detail' source.id %}?month={{ year }}-{{ month|stringformat:'02d' }}" style="--source-color: {{ source.safe_main_color }}; --source-pale: {{ source.pale_color }}; --source-name-color: {{ source.name_color }};">
       <span>{{ source.get_kind_display }}</span>
       <strong>{{ source.name }}</strong>
-      <b>¥{{ source.month_total|default:0|floatformat:0 }}</b>
-      {% if source.kind == 'flea_market' %}<small>利益 ¥{{ source.flea_profit_total|floatformat:0 }} / 出金 ¥{{ source.flea_withdrawal_total|floatformat:0 }}（差引）</small>{% endif %}
-      {% if source.kind == 'credit_card' or source.kind == 'bank' %}<small>直接 ¥{{ source.direct_total|floatformat:0 }} / コード決済経由 ¥{{ source.funded_total|floatformat:0 }}</small>{% endif %}
+      <b>¥{{ source.month_total|default:0|floatformat:"0g" }}</b>
+      {% if source.kind == 'flea_market' %}<small>利益 ¥{{ source.flea_profit_total|floatformat:"0g" }} / 出金 ¥{{ source.flea_withdrawal_total|floatformat:"0g" }}（差引）</small>{% endif %}
+      {% if source.kind == 'credit_card' or source.kind == 'bank' %}<small>直接 ¥{{ source.direct_total|floatformat:"0g" }} / コード決済経由 ¥{{ source.funded_total|floatformat:"0g" }}</small>{% endif %}
       {% if not source.is_active %}<small>利用停止中</small>{% endif %}
     </a>
   {% empty %}

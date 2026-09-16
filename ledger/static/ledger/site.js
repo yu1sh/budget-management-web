@@ -3,7 +3,7 @@
     const nav = document.querySelector("[data-main-nav]");
     nav?.querySelectorAll("a[href]").forEach((link) => {
       const path = new URL(link.href).pathname;
-      if (window.location.pathname.startsWith(path)) {
+      if ((path === "/" ? window.location.pathname === path : window.location.pathname.startsWith(path))) {
         link.setAttribute("aria-current", "page");
         const menu = link.closest("details");
         if (menu) menu.classList.add("has-current");

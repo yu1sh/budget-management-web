@@ -18,7 +18,7 @@
     <div class="totals credit-card-totals">
       <div class="panel"><span>利用期間</span><strong>{{ period_start|date:'Y年m月d日' }}〜{{ period_end|date:'Y年m月d日' }}</strong></div>
       <div class="panel"><span>引落予定日</span><strong>{{ payment_date|date:'Y年m月d日' }}</strong></div>
-      <div class="panel"><span>引落予定合計</span><strong>¥{{ total|floatformat:0 }}</strong></div>
+      <div class="panel"><span>引落予定合計</span><strong>¥{{ total|floatformat:"0g" }}</strong></div>
     </div>
   {% else %}
     <div class="message"><p>締め日・支払い日・支払い月が未設定のため、この月の期間を計算できません。</p><p><a href="{% url 'source_edit' source.id %}">支払い元設定で登録する</a></p></div>
@@ -35,7 +35,7 @@
     <thead><tr><th>利用日</th><th>店名</th><th>内訳</th><th>金額</th><th>入力時支払い元</th><th>計上区分</th><th>引き落とし経路</th><th>備考</th></tr></thead>
     <tbody>
       {% for entry in entries %}
-        <tr><td>{{ entry.spent_on|date:'Y-m-d' }}</td><td>{{ entry.shop_name }}</td><td>{{ entry.description }}</td><td class="amount">¥{{ entry.amount_yen|floatformat:0 }}</td><td>{{ entry.payment_source_name_snapshot }}</td><td>{% if entry.payment_source_id == source.id %}直接利用{% else %}コード決済経由{% endif %}</td><td>{{ entry.settlement_path_snapshot|default:'未設定' }}</td><td>{{ entry.note }}</td></tr>
+        <tr><td>{{ entry.spent_on|date:'Y-m-d' }}</td><td>{{ entry.shop_name }}</td><td>{{ entry.description }}</td><td class="amount">¥{{ entry.amount_yen|floatformat:"0g" }}</td><td>{{ entry.payment_source_name_snapshot }}</td><td>{% if entry.payment_source_id == source.id %}直接利用{% else %}コード決済経由{% endif %}</td><td>{{ entry.settlement_path_snapshot|default:'未設定' }}</td><td>{{ entry.note }}</td></tr>
       {% empty %}
         <tr><td colspan="8" class="empty">{% if schedule_configured %}この期間の明細はありません。{% else %}期間を計算できません。{% endif %}</td></tr>
       {% endfor %}

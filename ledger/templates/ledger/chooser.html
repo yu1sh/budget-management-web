@@ -1,1 +1,39 @@
-{% extends 'ledger/base.html' %}{% block content %}<section class="hero"><h1>何を入力しますか？</h1><p>目的を選んでください。いつでも上部メニューから戻れます。</p><div class="chooser"><a class="choice" href="{% url 'household' %}"><strong>家計簿を入力する</strong><span>支出を月ごとに記録・集計</span></a><a class="choice" href="{% url 'medical' %}"><strong>医療費控除を入力する</strong><span>人ごとの医療費を記録・集計</span></a></div></section>{% endblock %}
+{% extends 'ledger/base.html' %}
+{% block title %}ホーム | 家計簿・医療費記録{% endblock %}
+{% block content %}
+<section class="home-intro">
+  <p class="eyebrow">{{ today|date:'Y年n月j日' }}</p>
+  <h1>毎日の記録を、<br>暮らしの見通しに。</h1>
+  <p>支出と医療費を整理して、必要なときにすぐ確認。</p>
+</section>
+<section class="overview-grid" aria-label="現在の集計">
+  <a class="overview-card overview-featured" href="{% url 'household' %}">
+    <span>{{ today|date:'n月' }}の通常支出 <span aria-hidden="true">↗</span></span>
+    <strong>¥{{ expense_total|floatformat:"0g" }}</strong>
+    <small>今月の家計簿を見る · フリマの利益・出金を除く</small>
+  </a>
+  <a class="overview-card" href="{% url 'medical' %}">
+    <span>{{ today|date:'Y年' }}の医療費 <span aria-hidden="true">↗</span></span>
+    <strong>¥{{ medical_total|floatformat:"0g" }}</strong>
+    <small>全員分の記録を確認する</small>
+  </a>
+</section>
+<section aria-labelledby="quick-entry-title">
+  <div class="section-heading"><h2 id="quick-entry-title">記録を追加する</h2><span>日々の入力はこちらから</span></div>
+  <div class="chooser">
+    <a class="choice" href="{% url 'household' %}#entry-panel"><span class="eyebrow">01 / 家計簿</span><strong>支出を記録</strong><span>レシートの内訳をまとめて入力できます。</span></a>
+    <a class="choice" href="{% url 'medical' %}"><span class="eyebrow">02 / 医療費</span><strong>医療費を記録</strong><span>対象者・病院を選んで受診費用を入力します。</span></a>
+  </div>
+</section>
+{% if not has_payment_sources or not has_people %}
+<aside class="setup-note"><h2>最初の入力の前に</h2><p>使う項目を登録すると、次回から選ぶだけで入力できます。</p><div class="actions">{% if not has_payment_sources %}<a class="button secondary" href="{% url 'source_settings' %}">支払い元を登録</a>{% endif %}{% if not has_people %}<a class="button secondary" href="{% url 'people_settings' %}">医療費の対象者を登録</a>{% endif %}</div></aside>
+{% endif %}
+<section aria-labelledby="recent-title">
+  <div class="section-heading"><h2 id="recent-title">今月の最近の明細</h2><a href="{% url 'household' %}#history">すべて見る →</a></div>
+  <div class="recent-list">
+    {% for entry in recent_entries %}
+    <a class="recent-entry" href="{% url 'household_edit' entry.id %}"><time datetime="{{ entry.spent_on|date:'Y-m-d' }}">{{ entry.spent_on|date:'m/d' }}</time><span><strong>{{ entry.shop_name }}</strong><small>{{ entry.description }} · {{ entry.get_entry_type_display }}</small></span><b>¥{{ entry.amount_yen|floatformat:"0g" }}</b><span aria-hidden="true">↗</span></a>
+    {% empty %}<div class="empty"><strong>今月の記録はまだありません</strong><p>最初の支出を登録すると、ここに最近の明細が表示されます。</p><a href="{% url 'household' %}#entry-panel">支出を記録する →</a></div>{% endfor %}
+  </div>
+</section>
+{% endblock %}
