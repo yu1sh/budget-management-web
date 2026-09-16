@@ -355,13 +355,14 @@ td { padding: 1rem; font-size: .9rem; }
   .household-table { min-width: 0; }
   .household-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .household-table tbody { display: block; }
-  .household-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 1rem; gap: .9rem 1rem; border-bottom: 1px solid var(--line); }
+  .household-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: .6rem 1rem; gap: .3rem 1rem; border-bottom: 1px solid var(--line); }
   .household-table tr:last-child { border-bottom: 0; }
   .household-table td { display: block; padding: 0; border: 0; max-width: none; min-width: 0; text-align: left; }
-  .household-table td::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 400; color: var(--muted); margin-bottom: .2rem; }
+  .household-table td::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 400; color: var(--muted); margin-bottom: .05rem; }
   .household-table td[data-label="店名"], .household-table td[data-label="備考"], .household-table td[data-label="引き落とし経路"], .household-table td.no-select, .household-table td.empty { grid-column: 1 / -1; }
   .household-table td[data-label="備考"]:empty { display: none; }
   .household-table td.amount { font-size: 1.15rem; }
+  .household-table td:not(.no-select) > a { padding-block: .15rem; }
   .household-table td.no-select { display: flex; align-items: center; gap: 1.5rem; border-top: 1px solid var(--line); padding-top: .6rem; }
   .household-table td.no-select::before { display: none; }
   .household-table td.no-select form { margin: 0; }
