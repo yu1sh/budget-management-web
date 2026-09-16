@@ -106,7 +106,7 @@ on_exit() {
 trap on_exit EXIT
 
 # Consume and bound the uploaded archive before extracting any file.
-python3 - "$archive_file" <<'PY'
+python3 -c '
 import sys
 
 limit = 512 * 1024 * 1024
@@ -120,7 +120,7 @@ with open(sys.argv[1], "wb") as output:
         if total > limit:
             raise SystemExit("archive exceeds the 512 MiB upload limit")
         output.write(chunk)
-PY
+' "$archive_file"
 chmod 0600 "$archive_file"
 
 release_dir="$releases/$deploy_sha"
