@@ -266,7 +266,14 @@ td { padding: 1rem; font-size: .9rem; }
 .section-heading h2 { margin: 0; }
 .section-heading > span, .section-heading > a { font-size: .85rem; color: var(--muted); }
 .home-intro { margin: .5rem 0 2rem; }
-.home-intro h1 { font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif; font-weight: 500; font-size: clamp(1.9rem, 3.3vw, 3rem); line-height: 1.5; }
+/* Japanese sans-serif typography, informed by the Digital Agency design system. */
+.home-intro h1 {
+  font-family: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  font-weight: 600;
+  font-size: clamp(1.375rem, 2vw, 1.75rem);
+  line-height: 1.6;
+  letter-spacing: .02em;
+}
 .home-intro > p:last-child { color: var(--muted); margin: .75rem 0; }
 .eyebrow { color: var(--muted); font-size: .75rem; letter-spacing: .07em; }
 .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
@@ -330,7 +337,6 @@ td { padding: 1rem; font-size: .9rem; }
   .overview-card { gap: .4rem; border-radius: 18px; }
   .overview-card strong { font-size: 2.1rem; }
   .home-intro { margin-bottom: 1.5rem; }
-  .home-intro h1 { font-size: 1.9rem; }
   .chooser { gap: .75rem; }
   .choice { padding: 1.25rem; }
   .recent-entry { grid-template-columns: 2.5rem minmax(0, 1fr) auto; gap: .65rem; padding: 1rem; }
