@@ -5,8 +5,8 @@
 </div>
 {% if person.is_active %}
 <section class="panel medical-entry-panel">
-  <h2>{{ hospital_name }}に受診記録を追加</h2>
-  <p>病院名は選択済みです。薬局・交通費はこの病院に付随する明細として保存されます。病院の金額、薬局、交通費は入力する項目だけ記入してください。</p>
+  <h2>受診記録を追加</h2>
+  <p>費用がある項目だけ入力してください。</p>
   <form method="post">
     {% csrf_token %}{% include 'ledger/includes/form_errors.html' %}
     <div class="medical-date-field"><label>{{ form.visited_on.label }}{{ form.visited_on }}{{ form.visited_on.errors }}</label></div>

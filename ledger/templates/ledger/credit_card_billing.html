@@ -4,7 +4,6 @@
 <div class="page-heading">
   <div>
     <h1>クレジットカード引落明細</h1>
-    <p>支払月ごとに、締め日から算出した利用期間と引落予定を確認します。</p>
   </div>
   <form class="inline" method="get">
     <label>支払月 <input aria-label="表示する月" type="month" name="month" value="{{ payment_year }}-{{ payment_month|stringformat:'02d' }}"></label>
@@ -19,7 +18,7 @@
 <div class="source-grid credit-card-grid">
   {% for statement in statements %}
     <a class="panel source-card credit-card-statement-card{% if statement.source.is_deleted %} is-deleted{% endif %}" href="{% url 'credit_card_billing_detail' statement.source.id %}?month={{ payment_year }}-{{ payment_month|stringformat:'02d' }}" style="--source-color: {{ statement.source.safe_main_color }}; --source-pale: {{ statement.source.pale_color }}; --source-name-color: {{ statement.source.name_color }};">
-      <span>クレジットカード{% if not statement.source.is_active %}・利用停止中{% endif %}</span>
+      {% if not statement.source.is_active %}<span>利用停止中</span>{% endif %}
       <strong>{{ statement.source.name }}</strong>
       {% if statement.configured %}
         <small>{{ statement.period_start|date:'Y年m月d日' }}〜{{ statement.period_end|date:'Y年m月d日' }}</small>

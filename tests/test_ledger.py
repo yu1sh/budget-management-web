@@ -536,7 +536,9 @@ def test_settlement_snapshots_and_final_settlement_pages(client, user):
     assert listing.status_code == 200
     html = listing.content.decode()
     detail_url = reverse("settlement_detail", args=[bank.id]) + "?month=2026-08"
-    assert detail_url in html and "最終的な引き落とし元ごとに一度だけ" in html
+    assert detail_url in html
+    totals = {source.pk: source.month_total for source in listing.context["sources"]}
+    assert totals == {bank.pk: 900}
     detail = client.get(detail_url)
     assert detail.context["total"] == 900
     detail_html = detail.content.decode()

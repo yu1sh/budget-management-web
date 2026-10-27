@@ -11,7 +11,6 @@
 
 <section class="panel">
   <h2>病院を選択</h2>
-  <p>病院を選んでから、その病院に対する受診日・病院費用・薬局・交通費を入力します。</p>
   <div class="source-grid hospital-selection-grid">
     {% for hospital in hospitals %}
     <a class="panel source-card" href="{% url 'medical_hospital_detail' person.id %}?year={{ year }}&amp;name={{ hospital.hospital_name|urlencode }}">
@@ -27,7 +26,6 @@
 {% if person.is_active %}
 <section class="panel">
   <h2>病院を新規追加</h2>
-  <p>病院名を入力すると、その病院専用の入力ページへ移動します。この操作だけでは受診記録は作成されません。</p>
   <form class="hospital-add-form" method="post" action="{% url 'medical_hospital_add' person.id %}?year={{ year }}">
     {% csrf_token %}<label>{{ hospital_add_form.hospital_name.label }}{{ hospital_add_form.hospital_name }}</label><button type="submit">病院を選択して入力へ</button>
   </form>
