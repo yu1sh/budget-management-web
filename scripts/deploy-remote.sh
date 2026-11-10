@@ -273,7 +273,7 @@ if caddy.get("ports") != [{"host_ip": "127.0.0.1", "published": "8081", "target"
 for key in ("privileged", "devices", "volumes_from", "network_mode", "pid", "ipc"):
     if caddy.get(key):
         raise SystemExit("Caddy service requests an unsafe Docker option")
-' "$image" "$release_dir" "$runtime_volume" <<< "$compose_config"
+' "$image" "$release_dir" "$runtime_volume"
 
 docker image inspect caddy:2.10-alpine >/dev/null 2>&1 || fail "the existing Caddy image is missing; refusing an implicit image pull"
 compose_run "$release_dir" build app
