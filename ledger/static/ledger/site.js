@@ -1,5 +1,11 @@
 (() => {
   document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll('form[method="get"] input[type="month"][name="month"]').forEach((input) => {
+      input.form.querySelector("button").hidden = true;
+      input.addEventListener("change", () => {
+        if (input.value && input.checkValidity()) input.form.requestSubmit();
+      });
+    });
     const nav = document.querySelector("[data-main-nav]");
     nav?.querySelectorAll("a[href]").forEach((link) => {
       const path = new URL(link.href).pathname;
