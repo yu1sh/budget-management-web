@@ -150,7 +150,7 @@ def test_medical_visit_is_one_main_row_and_hospital_page_shows_attached_details(
     main = client.get(reverse("medical_person", args=[person.id]) + "?year=2026")
     assert main.context["visits"].count() == 1
     html = main.content.decode()
-    assert "日付</th>" in html and "病院名/薬局名/交通手段" in html and "¥1780" in html
+    assert "日付</th>" in html and "病院名/薬局名/交通手段" in html and "¥1,780" in html
     assert "受診先病院" in html and "付随薬局" in html and "地下鉄" in html
     assert "category-hospital" in html and "category-pharmacy" in html and "category-transport" in html
     assert reverse("medical_hospital_detail", args=[person.id]) in html

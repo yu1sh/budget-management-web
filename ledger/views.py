@@ -28,6 +28,7 @@ from .forms import (
     PaymentSourceForm,
     PersonForm,
 )
+from .greetings import greeting_for_hour
 from .models import HouseholdEntry, MedicalEntry, MedicalVisit, PaymentSource, Person, resolve_settlement
 from .services import (export_household_month, export_medical_all, export_medical_person,
                        credit_card_statement_entries, export_credit_card_statement,
@@ -100,7 +101,23 @@ def logout_view(request):
 
 @login_required
 def chooser(request):
-    return render(request, "ledger/chooser.html")
+    today = timezone.localdate()
+    entries = HouseholdEntry.objects.filter(
+        spent_on__year=today.year, spent_on__month=today.month, deleted_at__isnull=True,
+    )
+    expense_total = entries.filter(entry_type=HouseholdEntry.EntryType.EXPENSE).aggregate(
+        total=Sum("amount_yen"),
+    )["total"] or 0
+    medical_total = MedicalEntry.objects.filter(
+        record_year=today.year, deleted_at__isnull=True,
+    ).aggregate(total=Sum("paid_amount_yen"))["total"] or 0
+    return render(request, "ledger/chooser.html", {
+        "today": today, "greeting": greeting_for_hour(timezone.localtime().hour),
+        "expense_total": expense_total, "medical_total": medical_total,
+        "recent_entries": entries[:5],
+        "has_payment_sources": PaymentSource.objects.filter(is_active=True, deleted_at__isnull=True).exists(),
+        "has_people": Person.objects.filter(is_active=True).exists(),
+    })
 
 
 @login_required

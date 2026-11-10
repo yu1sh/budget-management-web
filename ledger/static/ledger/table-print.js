@@ -3,7 +3,7 @@
   let table, anchor, focus, selecting = false;
   const $ = (selector) => document.querySelector(selector);
   const selectableCells = (row) => Array.from(row.cells).filter((cell) => !cell.classList.contains("no-select") && !cell.classList.contains("empty") && cell.colSpan === 1);
-  const dataRows = () => table ? Array.from(table.tBodies[0]?.rows || []).filter((row) => !row.querySelector(".empty") && selectableCells(row).length) : [];
+  const dataRows = () => table ? Array.from(table.tBodies[0]?.rows || []).filter((row) => !row.hidden && !row.querySelector(".empty") && selectableCells(row).length) : [];
   const clear = () => {
     if (table) table.querySelectorAll(".cell-selected").forEach((cell) => cell.classList.remove("cell-selected"));
     anchor = focus = null;
@@ -52,6 +52,7 @@
       mode.textContent = "範囲選択";
       mode.setAttribute("aria-pressed", "false");
     };
+    $("[data-selectable-table]")?.addEventListener("records-filtered", stopSelection);
     mode.setAttribute("aria-pressed", "false");
     mode.addEventListener("click", () => {
       table = $("[data-selectable-table]");

@@ -29,7 +29,7 @@ def test_production_pages_use_versioned_and_served_assets(tmp_path):
         request.user = SimpleNamespace(is_authenticated=True)
         html = render_to_string("ledger/chooser.html", request=request)
         client = Client()
-        for filename in ("site.css", "site.js", "table-print.js"):
+        for filename in ("site.css", "site.js", "table-print.js", "record-search.js"):
             url = staticfiles_storage.url("ledger/" + filename)
             stem, extension = filename.rsplit(".", 1)
             assert re.fullmatch(r"/static/ledger/" + re.escape(stem) + r"\\.[0-9a-f]{12}\\." + extension, url), url
