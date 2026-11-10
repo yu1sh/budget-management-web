@@ -11,10 +11,13 @@
     const controls = document.createElement("div");
     controls.className = "record-search";
     const label = document.createElement("label");
-    label.textContent = "表示中の明細を検索";
+    const labelText = document.createElement("span");
+    labelText.className = "sr-only";
+    labelText.textContent = "表示中の明細を絞り込み";
+    label.append(labelText);
     const input = document.createElement("input");
     input.type = "search";
-    input.placeholder = "店名・内訳・日付など";
+    input.placeholder = "店名・内訳・日付で絞り込み";
     input.setAttribute("aria-describedby", "record-search-note");
     label.append(input);
     const reset = document.createElement("button");
@@ -26,7 +29,7 @@
     count.setAttribute("aria-live", "polite");
     const note = document.createElement("p");
     note.id = "record-search-note";
-    note.className = "record-search-note";
+    note.className = "sr-only";
     note.textContent = "検索はこの一覧のみが対象です。合計金額・CSVの内容は変わりません。";
     const empty = table.tBodies[0].insertRow();
     const emptyCell = empty.insertCell();
@@ -43,7 +46,7 @@
       });
       empty.hidden = visible > 0;
       reset.hidden = !input.value;
-      count.textContent = `${visible} / ${rows.length}件`;
+      count.textContent = input.value ? `${visible} / ${rows.length}件` : "";
       table.dispatchEvent(new Event("records-filtered"));
     };
     input.addEventListener("input", update);

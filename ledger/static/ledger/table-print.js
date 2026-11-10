@@ -51,6 +51,7 @@
       mode.disabled = false;
       mode.textContent = "範囲選択";
       mode.setAttribute("aria-pressed", "false");
+      const hint = $("#household-table-hint"); if (hint) hint.hidden = true;
     };
     $("[data-selectable-table]")?.addEventListener("records-filtered", stopSelection);
     mode.setAttribute("aria-pressed", "false");
@@ -64,6 +65,7 @@
       table.classList.add("selection-active"); table.focus();
       mode.textContent = "範囲選択を終了";
       mode.setAttribute("aria-pressed", "true");
+      const hint = $("#household-table-hint"); if (hint) hint.hidden = false;
     });
     document.addEventListener("pointerdown", (event) => {
       if (!table || !table.classList.contains("selection-active")) return;

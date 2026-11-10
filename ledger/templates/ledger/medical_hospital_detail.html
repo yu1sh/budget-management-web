@@ -1,12 +1,11 @@
 {% extends 'ledger/base.html' %}
 {% block content %}
 <div class="page-heading">
-  <div><p><a href="{% url 'medical_person' person.id %}?year={{ year }}">← {{ person.name }}の医療費一覧</a></p><h1>{{ hospital_name }}</h1><p>{{ person.name }}・{{ year }}年の病院別明細</p><p class="total">¥{{ total|floatformat:"0g" }}</p></div>
+  <div><p><a href="{% url 'medical_person' person.id %}?year={{ year }}">← {{ person.name }}の医療費一覧</a></p><h1>{{ hospital_name }}（{{ year }}年）</h1><p class="total">¥{{ total|floatformat:"0g" }}</p></div>
 </div>
 {% if person.is_active %}
 <section class="panel medical-entry-panel">
   <h2>受診記録を追加</h2>
-  <p>費用がある項目だけ入力してください。</p>
   <form method="post">
     {% csrf_token %}{% include 'ledger/includes/form_errors.html' %}
     <div class="medical-date-field"><label>{{ form.visited_on.label }}{{ form.visited_on }}{{ form.visited_on.errors }}</label></div>

@@ -49,7 +49,7 @@
     });
     document.querySelectorAll(".table-wrap").forEach((wrapper, index) => {
       const hint = document.createElement("p");
-      hint.className = "table-scroll-hint";
+      hint.className = "sr-only";
       hint.id = `table-scroll-hint-${index}`;
       hint.textContent = "左右にスクロールすると、残りの項目を確認できます。";
       hint.hidden = true;
@@ -178,9 +178,9 @@
       add.disabled = rows.querySelectorAll("[data-breakdown-row]:not([hidden])").length >= maxRows;
       add.textContent = add.disabled ? `内訳は${maxRows}行までです` : "内訳を追加";
       if (!summary || !amountOutput || !countOutput) return;
-      summary.hidden = false;
+      summary.hidden = !count && !invalid;
       amountOutput.textContent = invalid ? "金額を確認してください" : yen.format(amount);
-      countOutput.textContent = count ? `${count}行の金額を入力済み` : "金額を入力してください";
+      countOutput.textContent = count ? `${count}件` : "";
     };
     rows.addEventListener("input", updateSummary);
     updateSummary();

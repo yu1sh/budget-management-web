@@ -23,14 +23,14 @@
   </div>
 </section>
 {% if not has_payment_sources or not has_people %}
-<aside class="setup-note"><h2>最初の入力の前に</h2><p>使う項目を登録すると、次回から選ぶだけで入力できます。</p><div class="actions">{% if not has_payment_sources %}<a class="button secondary" href="{% url 'source_settings' %}">支払い元を登録</a>{% endif %}{% if not has_people %}<a class="button secondary" href="{% url 'people_settings' %}">医療費の対象者を登録</a>{% endif %}</div></aside>
+<aside class="setup-note"><h2>最初の入力の前に</h2><div class="actions">{% if not has_payment_sources %}<a class="button secondary" href="{% url 'source_settings' %}">支払い元を登録</a>{% endif %}{% if not has_people %}<a class="button secondary" href="{% url 'people_settings' %}">医療費の対象者を登録</a>{% endif %}</div></aside>
 {% endif %}
 <section aria-labelledby="recent-title">
   <div class="section-heading"><h2 id="recent-title">今月の最近の明細</h2><a href="{% url 'household' %}#history">すべて見る →</a></div>
   <div class="recent-list">
     {% for entry in recent_entries %}
     <a class="recent-entry" href="{% url 'household_edit' entry.id %}"><time datetime="{{ entry.spent_on|date:'Y-m-d' }}">{{ entry.spent_on|date:'m/d' }}</time><span><strong>{{ entry.shop_name }}</strong><small>{{ entry.description }} · {{ entry.get_entry_type_display }}</small></span><b>¥{{ entry.amount_yen|floatformat:"0g" }}</b><span aria-hidden="true">↗</span></a>
-    {% empty %}<div class="empty"><strong>今月の記録はまだありません</strong><p>最初の支出を登録すると、ここに最近の明細が表示されます。</p><a href="{% url 'household' %}#entry-panel">支出を記録する →</a></div>{% endfor %}
+    {% empty %}<div class="empty"><strong>今月の記録はまだありません</strong><a href="{% url 'household' %}#entry-panel">支出を記録する →</a></div>{% endfor %}
   </div>
 </section>
 {% endblock %}

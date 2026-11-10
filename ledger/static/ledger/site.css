@@ -249,7 +249,8 @@ button, .button { border-radius: 999px; padding: .65rem 1.15rem; font-weight: 60
 .source-card strong { color: var(--ink); font-size: 1.1rem; }
 .source-card b { color: var(--ink); font-weight: 550; font-size: 1.65rem; letter-spacing: -.025em; }
 .source-card:hover, .source-card:focus { border-color: var(--source-color, #b8a995); box-shadow: 0 5px 16px #24252808; }
-.source-card::after { content: "詳細を見る →"; color: var(--muted); font-size: .8rem; margin-top: .5rem; }
+.source-card { position: relative; padding-right: 3rem; }
+.source-card::after { content: "→"; position: absolute; top: 1.5rem; right: 1.25rem; color: var(--muted); }
 .source-detail-page h1 { color: var(--ink); }
 .totals strong { color: var(--ink); font-weight: 550; }
 .category-badge { color: var(--brown); background: #f4e8df; font-weight: 550; }
@@ -263,6 +264,7 @@ td { padding: 1rem; font-size: .9rem; }
 .cell-selected { background: #fbe1d1 !important; outline-color: #8d5235; }
 .empty { color: var(--muted); padding: 2.5rem 1rem; }
 .empty p { margin: .5rem 0 1rem; }
+.empty > strong { display: block; margin-bottom: .75rem; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; flex-wrap: wrap; margin: 2rem 0 1rem; }
 .section-heading h2 { margin: 0; }
 .section-heading > span, .section-heading > a { font-size: .85rem; color: var(--muted); }
@@ -299,7 +301,7 @@ td { padding: 1rem; font-size: .9rem; }
 .recent-entry small { display: block; overflow-wrap: anywhere; }
 .recent-entry b { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
 .setup-note { border-left: 3px solid #b8a995; padding: .5rem 1.25rem; margin: 2rem 0; }
-.setup-note h2 { margin: 0; }
+.setup-note h2 { margin: 0 0 .75rem; }
 .setup-note p { color: var(--muted); font-size: .9rem; }
 .page-shortcuts { display: flex; gap: .5rem; margin: 0 0 1.5rem; }
 .page-shortcuts a { padding: .45rem 1rem; border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; text-decoration: none; background: white; min-height: 44px; display: flex; align-items: center; }
@@ -317,7 +319,7 @@ td { padding: 1rem; font-size: .9rem; }
   .app-shell .brand { padding: 0 .5rem 1.75rem; }
   .app-shell .site-header nav { display: flex; flex-direction: column; align-items: stretch; gap: .35rem; }
   .app-shell .site-header nav > a { padding: .75rem 1rem; }
-  .app-shell .nav-section { display: block; padding: 1.25rem 1rem .25rem; }
+  .app-shell .site-header nav > .nav-group-start { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: 1rem; }
   .app-shell .settings-menu { margin: 0; }
   .app-shell .settings-menu summary { padding: .75rem 1rem; }
   .app-shell .settings-menu-items { position: static; min-width: 0; box-shadow: none; margin: .35rem 0 0; font-size: .85rem; }
@@ -357,10 +359,26 @@ td { padding: 1rem; font-size: .9rem; }
   .household-table { min-width: 0; }
   .household-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .household-table tbody { display: block; }
-  .household-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: .6rem 1rem; gap: .3rem 1rem; margin: .3rem .25rem; border: 1px solid #9f978c; border-radius: 14px; background: #fff; }
+  .household-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "date amount" "shop shop" "description type" "source source" "settlement settlement" "note note" "actions actions"; padding: 1rem; gap: .35rem 1rem; margin: .3rem .25rem; border: 1px solid #9f978c; border-radius: 14px; background: #fff; }
   .household-table td { display: block; padding: 0; border: 0; max-width: none; min-width: 0; text-align: left; }
   .household-table td::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 400; color: var(--muted); margin-bottom: .05rem; }
   .household-table td[data-label="店名"], .household-table td[data-label="備考"], .household-table td[data-label="引き落とし経路"], .household-table td.no-select, .household-table td.empty { grid-column: 1 / -1; }
+  .household-table td[data-label="日付"] { grid-area: date; color: var(--muted); font-size: .8rem; }
+  .household-table td.amount { grid-area: amount; text-align: right; }
+  .household-table td[data-label="店名"] { grid-area: shop; font-size: 1.05rem; font-weight: 650; }
+  .household-table td[data-label="内訳"] { grid-area: description; }
+  .household-table td[data-label="種別"] { grid-area: type; color: var(--muted); font-size: .8rem; text-align: right; }
+  .household-table td[data-label="支払い元"] { grid-area: source; margin-top: .4rem; }
+  .household-table td[data-label="引き落とし経路"] { grid-area: settlement; }
+  .household-table td[data-label="備考"] { grid-area: note; }
+  .household-table td.no-select { grid-area: actions; margin-top: .4rem; }
+  .household-table td[data-label="日付"]::before,
+  .household-table td[data-label="金額"]::before,
+  .household-table td[data-label="店名"]::before,
+  .household-table td[data-label="内訳"]::before,
+  .household-table td[data-label="種別"]::before { display: none; }
+  .household-table td[data-label="支払い元"]::before,
+  .household-table td[data-label="引き落とし経路"]::before { display: inline; margin-right: .6rem; }
   .household-table td[data-label="備考"]:empty { display: none; }
   .household-table td.amount { font-size: 1.15rem; }
   .household-table td:not(.no-select) > a { padding-block: .15rem; }
